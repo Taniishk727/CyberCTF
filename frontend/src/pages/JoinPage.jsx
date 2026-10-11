@@ -26,7 +26,15 @@ export default function JoinPage() {
       navigate('/home');
     } catch (err) {
       if (!err.response) {
-        setError('Cannot connect to the server. Is the backend and MongoDB running?');
+        setError('Unable to reach server. Please check your connection or CORS settings.');
+      } else if (err.response.status === 401) {
+        setError(err.response?.data?.message || 'Incorrect passcode for this username');
+      } else if (err.response.status === 403) {
+        setError(err.response?.data?.message || 'Access denied or account banned');
+      } else if (err.response.status === 429) {
+        setError(err.response?.data?.message || 'Too many attempts. Please wait a moment.');
+      } else if (err.response.status >= 500) {
+        setError('Server error occurred. Please try again later.');
       } else {
         setError(err.response?.data?.message || 'Failed to join event');
       }

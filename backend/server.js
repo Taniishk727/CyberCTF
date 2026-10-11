@@ -40,26 +40,50 @@ app.use(helmet());
 app.use(compression());
 
 // 3. CORS Configuration
-const allowedOrigins = [
+const rawOrigins = [
   process.env.FRONTEND_URL,
+  process.env.CORS_ORIGIN,
+  'https://cyber-ctf-seven.vercel.app',
+  'https://cyber-ctf-beta.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000',
-  'https://cyber-ctf-seven.vercel.app/',
   'http://localhost:4173'
 ].filter(Boolean);
 
-app.use(cors({
+// Normalize allowed origins by trimming whitespace and removing trailing slashes
+const allowedOrigins = [...new Set(rawOrigins.map(o => o.trim().replace(/\/+$/, '')))];
+
+const corsOptions = {
   origin: function (origin, callback) {
+    // Allow server-to-server or non-browser tools (e.g. curl, health checks) with no Origin header
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+
+    const normalizedOrigin = origin.trim().replace(/\/+$/, '');
+
+    // Allow explicitly configured origins
+    if (allowedOrigins.includes(normalizedOrigin)) {
       return callback(null, true);
     }
+
+    // Allow official Vercel preview deployments for this project (e.g. https://cyber-ctf-*-yourteam.vercel.app)
+    if (/^https:\/\/cyber-ctf(-[a-z0-9_-]+)?\.vercel\.app$/.test(normalizedOrigin)) {
+      return callback(null, true);
+    }
+
+    // Allow any origin in non-production environments (e.g. testing)
+    if (process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+
     return callback(new Error('CORS policy violation: Origin not allowed'), false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
-}));
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // 4. Body parsing
 app.use(express.json({ limit: '10mb' }));
@@ -71,8 +95,8 @@ app.use(hpp());
 
 // 6. DB Connection Middleware (Guarantees active connection in serverless & container environments)
 app.use(async (req, res, next) => {
-  // Allow healthcheck without blocking if DB is disconnected
-  if (req.path === '/api/health') {
+  // Allow healthcheck and preflight OPTIONS without blocking if DB is disconnected
+  if (req.path === '/api/health' || req.method === 'OPTIONS') {
     return next();
   }
   try {

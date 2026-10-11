@@ -1,5 +1,5 @@
 import express from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { Challenge, Submission, UnlockedHint, User } from '../models/index.js';
 import { authMiddleware, requirePlayer } from '../middleware/auth.js';
 import { requireEventActive, requireEventOpen } from '../middleware/eventStatus.js';
@@ -14,7 +14,7 @@ const flagSubmitLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => (req.user?._id ? req.user._id.toString() : req.ip),
+  keyGenerator: (req) => (req.user?._id ? req.user._id.toString() : ipKeyGenerator(req.ip)),
   message: { message: 'Too many flag submissions. Please wait 1 minute before trying again.' }
 });
 
@@ -24,7 +24,7 @@ const hintUnlockLimiter = rateLimit({
   max: 15,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => (req.user?._id ? req.user._id.toString() : req.ip),
+  keyGenerator: (req) => (req.user?._id ? req.user._id.toString() : ipKeyGenerator(req.ip)),
   message: { message: 'Too many hint unlock requests. Please wait a moment.' }
 });
 

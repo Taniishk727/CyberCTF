@@ -16,7 +16,8 @@ const getBaseURL = () => {
   const url = import.meta.env.VITE_API_URL;
   
   if (url && url.trim() !== '') {
-    return url.trim();
+    const trimmed = url.trim().replace(/\/+$/, '');
+    return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
   }
 
   return '/api';

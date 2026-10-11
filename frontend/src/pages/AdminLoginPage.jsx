@@ -25,9 +25,18 @@ export default function AdminLoginPage() {
       navigate('/admin');
     } catch (err) {
       if (!err.response) {
-        setError('Cannot connect to the server. Is the backend and MongoDB running?');
+        // Network failure, DNS issue, or CORS preflight / request rejection
+        setError('Unable to reach server. Please check your connection or CORS settings.');
+      } else if (err.response.status === 401) {
+        setError(err.response?.data?.message || 'Invalid admin credentials');
+      } else if (err.response.status === 403) {
+        setError(err.response?.data?.message || 'Access forbidden (403)');
+      } else if (err.response.status === 429) {
+        setError(err.response?.data?.message || 'Too many attempts. Please try again later.');
+      } else if (err.response.status >= 500) {
+        setError('Server error occurred. Please verify backend logs.');
       } else {
-        setError(err.response?.data?.message || 'Invalid credentials');
+        setError(err.response?.data?.message || 'Login failed');
       }
     } finally {
       setLoading(false);
