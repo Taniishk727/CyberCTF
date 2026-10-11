@@ -22,6 +22,8 @@ router.get('/rank', authMiddleware, requirePlayer, async (req, res, next) => {
         User.countDocuments({
           eventId: req.user.eventId,
           role: 'player',
+          isBanned: { $ne: true },
+          status: { $ne: 'banned' },
           $or: [
             { score: { $gt: currentUserRecord.score } },
             { score: currentUserRecord.score, createdAt: { $lt: currentUserRecord.createdAt } }

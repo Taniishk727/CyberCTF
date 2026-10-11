@@ -65,7 +65,12 @@ export async function getEventLeaderboardSnapshot(eventId) {
 
   const buildPromise = (async () => {
     const [players, solveCounts] = await Promise.all([
-      User.find({ eventId, role: 'player' })
+      User.find({
+        eventId,
+        role: 'player',
+        isBanned: { $ne: true },
+        status: { $ne: 'banned' }
+      })
         .select('_id username score createdAt')
         .sort({ score: -1, createdAt: 1 })
         .lean(),

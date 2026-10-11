@@ -1,12 +1,17 @@
 import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
+import helmet from 'helmet';
+import mongoSanitize from 'express-mongo-sanitize';
+import hpp from 'hpp';
+import compression from 'compression';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { authRoutes, challengeRoutes, leaderboardRoutes, adminRoutes, userRoutes, categoryRoutes } from './routes/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { connectDB } from './utils/db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,9 +33,57 @@ if (!process.env.JWT_SECRET) {
   console.warn('[CONFIG] JWT_SECRET is not set');
 }
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// 1. Security Headers
+app.use(helmet());
+
+// 2. Compression
+app.use(compression());
+
+// 3. CORS Configuration
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:4173'
+].filter(Boolean);
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    return callback(new Error('CORS policy violation: Origin not allowed'), false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// 4. Body parsing
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// 5. NoSQL Injection Prevention & HTTP Parameter Pollution Protection
+app.use(mongoSanitize());
+app.use(hpp());
+
+// 6. DB Connection Middleware (Guarantees active connection in serverless & container environments)
+app.use(async (req, res, next) => {
+  // Allow healthcheck without blocking if DB is disconnected
+  if (req.path === '/api/health') {
+    return next();
+  }
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      await connectDB();
+    }
+    next();
+  } catch (err) {
+    console.error('[DB] Failed to ensure connection:', err.message);
+    next(err);
+  }
+});
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -58,16 +111,7 @@ app.use((req, res) => {
 // Error handler
 app.use(errorHandler);
 
-const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
-
-mongoose.connect(mongoUri)
-  .then(() => {
-    console.log('DB connected');
-  })
-  .catch((err) => {
-    console.error('MongoDB connection error:', err.message);
-  });
-
+// Global connection event handlers
 mongoose.connection.on('disconnected', () => {
   console.warn('[DB] MongoDB disconnected');
 });
@@ -76,9 +120,16 @@ mongoose.connection.on('error', (err) => {
   console.error('[DB] MongoDB error:', err.message);
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on ${PORT}`);
-});
+// Server listener: only start when not running as a Vercel serverless function
+if (!process.env.VERCEL) {
+  connectDB().catch((err) => {
+    console.error('Initial MongoDB connection error:', err.message);
+  });
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on ${PORT}`);
+  });
+}
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
@@ -89,3 +140,5 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[PROCESS] Unhandled Rejection at:', promise, 'reason:', reason);
 });
+
+export default app;

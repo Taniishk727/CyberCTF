@@ -11,6 +11,7 @@ export default function JoinPage() {
   
   const [gamePin, setGamePin] = useState('');
   const [username, setUsername] = useState('');
+  const [passcode, setPasscode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -20,7 +21,7 @@ export default function JoinPage() {
     setLoading(true);
 
     try {
-      const response = await authApi.join(username, gamePin);
+      const response = await authApi.join(username, gamePin, passcode);
       login(response.data.user, response.data.event, response.data.token);
       navigate('/home');
     } catch (err) {
@@ -55,7 +56,7 @@ export default function JoinPage() {
               Join CTF Event
             </CardTitle>
             <CardDescription>
-              Enter the Game PIN and your Username to join
+              Enter Game PIN, Username, and Passcode to join or resume
             </CardDescription>
           </CardHeader>
 
@@ -92,11 +93,28 @@ export default function JoinPage() {
                 />
               </div>
 
+              <div className="flex flex-col gap-2">
+                <label htmlFor="passcode" className="text-sm font-medium text-foreground">
+                  Account Passcode
+                </label>
+                <Input
+                  id="passcode"
+                  type="password"
+                  placeholder="Enter passcode (min 4 chars)"
+                  value={passcode}
+                  onChange={(e) => setPasscode(e.target.value)}
+                  className="font-mono"
+                />
+                <span className="text-xs text-muted-foreground">
+                  Your secret passcode secures your score and prevents others from logging in as you.
+                </span>
+              </div>
+
               {error && (
                 <p className="text-sm text-destructive text-center">{error}</p>
               )}
 
-              <Button type="submit" loading={loading} disabled={gamePin.length !== 6 || !username.trim()}>
+              <Button type="submit" loading={loading} disabled={gamePin.length !== 6 || !username.trim() || passcode.length < 4}>
                 Join Event
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>

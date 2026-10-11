@@ -74,8 +74,8 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 };
 
 userSchema.index({ eventId: 1, role: 1, score: -1, createdAt: 1 });
-userSchema.index({ username: 1, role: 1 });
-userSchema.index({ eventId: 1, role: 1, username: 1 });
+userSchema.index({ username: 1, role: 1 }, { unique: true, partialFilterExpression: { role: 'admin' } });
+userSchema.index({ eventId: 1, role: 1, username: 1 }, { unique: true, sparse: true });
 
 const User = mongoose.model('User', userSchema);
 

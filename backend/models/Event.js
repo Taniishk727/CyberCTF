@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 
 const eventSchema = new mongoose.Schema({
   name: {
@@ -54,7 +55,7 @@ eventSchema.statics.generatePin = async function() {
   while (exists && attempts < maxAttempts) {
     pin = '';
     for (let i = 0; i < 6; i++) {
-      pin += chars.charAt(Math.floor(Math.random() * chars.length));
+      pin += chars.charAt(crypto.randomInt(0, chars.length));
     }
     exists = await this.findOne({ gamePin: pin });
     attempts++;

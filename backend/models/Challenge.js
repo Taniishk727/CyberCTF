@@ -13,7 +13,13 @@ const attachmentSchema = new mongoose.Schema({
   },
   url: {
     type: String,
-    required: true
+    required: true,
+    validate: {
+      validator: function(v) {
+        return /^(https?:\/\/|\/)/i.test(v);
+      },
+      message: 'Attachment URL must begin with http://, https://, or /'
+    }
   }
 }, { _id: false });
 

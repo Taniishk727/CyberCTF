@@ -160,10 +160,19 @@ router.delete('/events/:id', async (req, res, next) => {
       return res.status(404).json({ message: 'Event not found' });
     }
 
-    // Also delete related data
-    await Challenge.deleteMany({ eventId: event._id });
-    await User.deleteMany({ eventId: event._id, role: 'player' });
-    await Submission.deleteMany({ eventId: event._id });
+    // Also delete related data (categories, unlocked hints, challenges, players, submissions)
+    const challenges = await Challenge.find({ eventId: event._id }).select('_id');
+    const challengeIds = challenges.map(c => c._id);
+
+    await Promise.all([
+      Category.deleteMany({ eventId: event._id }),
+      UnlockedHint.deleteMany({ challengeId: { $in: challengeIds } }),
+      Challenge.deleteMany({ eventId: event._id }),
+      User.deleteMany({ eventId: event._id, role: 'player' }),
+      Submission.deleteMany({ eventId: event._id })
+    ]);
+
+    invalidateLeaderboardCache(event._id);
 
     res.json({ message: 'Event deleted successfully' });
   } catch (error) {
@@ -263,6 +272,22 @@ router.put('/challenges/:id', async (req, res, next) => {
       updateData.flagHash = await bcryptjs.hash(flag.trim(), 10);
     }
 
+    const existingChallenge = await Challenge.findById(req.params.id);
+    if (!existingChallenge) {
+      return res.status(404).json({ message: 'Challenge not found' });
+    }
+
+    // Synchronize solver scores if points are changed
+    if (points !== undefined && Number(points) !== existingChallenge.points) {
+      const diff = Number(points) - existingChallenge.points;
+      const solvedSubs = await Submission.find({ challengeId: existingChallenge._id, isCorrect: true }).select('userId');
+      const solverIds = solvedSubs.map(s => s.userId);
+      if (solverIds.length > 0) {
+        await User.updateMany({ _id: { $in: solverIds } }, { $inc: { score: diff } });
+      }
+      invalidateLeaderboardCache(existingChallenge.eventId);
+    }
+
     const challenge = await Challenge.findByIdAndUpdate(
       req.params.id,
       {
@@ -271,10 +296,6 @@ router.put('/challenges/:id', async (req, res, next) => {
       },
       { new: true, runValidators: true }
     ).select('-flagHash -flag'); // SECURITY: Never expose flag or hash
-
-    if (!challenge) {
-      return res.status(404).json({ message: 'Challenge not found' });
-    }
 
     res.json({ challenge });
   } catch (error) {
@@ -291,8 +312,13 @@ router.delete('/challenges/:id', async (req, res, next) => {
       return res.status(404).json({ message: 'Challenge not found' });
     }
 
-    // Delete related submissions
-    await Submission.deleteMany({ challengeId: challenge._id });
+    // Delete related submissions and unlocked hints
+    await Promise.all([
+      Submission.deleteMany({ challengeId: challenge._id }),
+      UnlockedHint.deleteMany({ challengeId: challenge._id })
+    ]);
+
+    invalidateLeaderboardCache(challenge.eventId);
 
     res.json({ message: 'Challenge deleted successfully' });
   } catch (error) {
@@ -382,6 +408,7 @@ router.put('/users/:id/status', async (req, res, next) => {
     }
     
     await user.save();
+    invalidateLeaderboardCache(user.eventId);
     res.json({ message: `User ${status}`, user: sanitizeUser(user) });
   } catch (error) {
     next(error);
@@ -411,6 +438,7 @@ router.post('/ban/:userId', async (req, res, next) => {
     user.sessionToken = null;
 
     await user.save();
+    invalidateLeaderboardCache(user.eventId);
 
     return res.json({
       message: 'User banned successfully',
@@ -437,6 +465,7 @@ router.post('/unban/:userId', async (req, res, next) => {
     user.banExpiresAt = null;
 
     await user.save();
+    invalidateLeaderboardCache(user.eventId);
 
     return res.json({
       message: 'User unbanned successfully',
@@ -455,12 +484,10 @@ router.post('/users/:id/reset', async (req, res, next) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    user.score = 0;
+    user.score = PLAYER_STARTING_SCORE;
     await user.save();
 
     await Submission.deleteMany({ userId: user._id });
-    
-    // Also delete any UnlockedHint documents for this user
     await UnlockedHint.deleteMany({ userId: user._id });
     invalidateLeaderboardCache(user.eventId);
 
@@ -485,6 +512,7 @@ router.delete('/users/:id', async (req, res, next) => {
 
     await User.findByIdAndDelete(req.params.id);
     await Submission.deleteMany({ userId: user._id });
+    await UnlockedHint.deleteMany({ userId: user._id });
     invalidateLeaderboardCache(user.eventId);
 
     res.json({ message: 'User deleted successfully' });
@@ -530,35 +558,41 @@ router.get('/analytics/:eventId', async (req, res, next) => {
       }
     ]);
 
-    // 2. SOLVE RATES - Count correct submissions per challenge
-    const challenges = await Challenge.find({ eventId: eventObjectId }).select('_id title category');
-    
-    const solveRates = await Promise.all(
-      challenges.map(async (challenge) => {
-        const totalSubmissions = await Submission.countDocuments({
-          challengeId: challenge._id,
-          eventId: eventObjectId
-        });
+    // 2. SOLVE RATES - Efficient single aggregation query (eliminates N+1 DB round-trips)
+    const [challenges, submissionStats] = await Promise.all([
+      Challenge.find({ eventId: eventObjectId }).select('_id title category').lean(),
+      Submission.aggregate([
+        { $match: { eventId: eventObjectId } },
+        {
+          $group: {
+            _id: '$challengeId',
+            totalSubmissions: { $sum: 1 },
+            correctSubmissions: {
+              $sum: { $cond: ['$isCorrect', 1, 0] }
+            }
+          }
+        }
+      ])
+    ]);
 
-        const correctSubmissions = await Submission.countDocuments({
-          challengeId: challenge._id,
-          isCorrect: true,
-          eventId: eventObjectId
-        });
-
-        const percent = totalSubmissions > 0 
-          ? Math.round((correctSubmissions / totalSubmissions) * 100)
-          : 0;
-
-        return {
-          challenge: challenge.title,
-          category: challenge.category,
-          percent,
-          solves: correctSubmissions,
-          total: totalSubmissions
-        };
-      })
+    const statsMap = new Map(
+      submissionStats.map(s => [s._id ? s._id.toString() : '', s])
     );
+
+    const solveRates = challenges.map((challenge) => {
+      const stats = statsMap.get(challenge._id.toString()) || { totalSubmissions: 0, correctSubmissions: 0 };
+      const total = stats.totalSubmissions;
+      const solves = stats.correctSubmissions;
+      const percent = total > 0 ? Math.round((solves / total) * 100) : 0;
+
+      return {
+        challenge: challenge.title,
+        category: challenge.category,
+        percent,
+        solves,
+        total
+      };
+    });
 
     // 3. ACTIVITY TIMELINE - Submissions over time (hourly)
     const activity = await Submission.aggregate([
@@ -616,8 +650,13 @@ router.get('/leaderboard/:eventId/progression', async (req, res, next) => {
       return res.status(404).json({ message: 'Event not found' });
     }
 
-    // Get top N players
-    const topPlayers = await User.find({ eventId: eventObjectId, role: 'player' })
+    // Get top N non-banned players
+    const topPlayers = await User.find({
+      eventId: eventObjectId,
+      role: 'player',
+      isBanned: { $ne: true },
+      status: { $ne: 'banned' }
+    })
       .select('_id username score')
       .sort({ score: -1 })
       .limit(topN);
@@ -726,10 +765,12 @@ router.get('/leaderboard/:eventId', async (req, res, next) => {
       return res.status(404).json({ message: 'Event not found' });
     }
 
-    // Fetch leaderboard for this event
+    // Fetch non-banned leaderboard for this event
     const players = await User.find({ 
       eventId: eventObjectId,
-      role: 'player' 
+      role: 'player',
+      isBanned: { $ne: true },
+      status: { $ne: 'banned' }
     })
       .select('username score createdAt')
       .sort({ score: -1, createdAt: 1 });
@@ -785,10 +826,12 @@ router.get('/leaderboard/:eventId/export', async (req, res, next) => {
       return res.status(404).json({ message: 'Event not found' });
     }
 
-    // Fetch leaderboard for this event
+    // Fetch non-banned leaderboard for this event
     const players = await User.find({ 
       eventId: eventObjectId,
-      role: 'player' 
+      role: 'player',
+      isBanned: { $ne: true },
+      status: { $ne: 'banned' }
     })
       .select('username score createdAt')
       .sort({ score: -1, createdAt: 1 });
@@ -951,14 +994,25 @@ router.put('/categories/:id', async (req, res, next) => {
   try {
     const { name, description, color } = req.body;
 
+    const oldCategory = await Category.findById(req.params.id);
+    if (!oldCategory) {
+      return res.status(404).json({ message: 'Category not found' });
+    }
+
+    const newName = typeof name === 'string' && name.trim() ? name.trim() : oldCategory.name;
+
     const category = await Category.findByIdAndUpdate(
       req.params.id,
-      { name: name ? name.trim() : undefined, description, color },
+      { name: newName, description, color },
       { new: true, runValidators: true }
     );
 
-    if (!category) {
-      return res.status(404).json({ message: 'Category not found' });
+    // If category name changed, cascade update to existing challenges
+    if (newName !== oldCategory.name) {
+      await Challenge.updateMany(
+        { category: oldCategory.name, eventId: oldCategory.eventId },
+        { $set: { category: newName } }
+      );
     }
 
     res.json({ category });

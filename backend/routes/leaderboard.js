@@ -25,10 +25,13 @@ router.get('/', authMiddleware, requirePlayer, async (req, res, next) => {
         return res.status(404).json({ message: 'User not found' });
       }
 
+      // Filter out banned players in rank calculation
       const [rankAbove, solveCount] = await Promise.all([
         User.countDocuments({
           eventId,
           role: 'player',
+          isBanned: { $ne: true },
+          status: { $ne: 'banned' },
           $or: [
             { score: { $gt: currentUser.score } },
             { score: currentUser.score, createdAt: { $lt: currentUser.createdAt } }
@@ -67,8 +70,13 @@ router.get('/history', authMiddleware, requirePlayer, async (req, res, next) => 
   try {
     const { eventId } = req.user;
 
-    // Get top 10 users by score
-    const topUsers = await User.find({ eventId, role: 'player' })
+    // Get top 10 active, non-banned users by score
+    const topUsers = await User.find({
+      eventId,
+      role: 'player',
+      isBanned: { $ne: true },
+      status: { $ne: 'banned' }
+    })
       .sort({ score: -1, createdAt: 1 })
       .limit(10)
       .select('_id username');
@@ -79,7 +87,7 @@ router.get('/history', authMiddleware, requirePlayer, async (req, res, next) => 
 
     const userIds = topUsers.map(u => u._id);
 
-    // Aggregate submissions by user and time
+    // Aggregate submissions by user and time, joining challenges to sum actual points
     const submissions = await Submission.aggregate([
       {
         $match: {
@@ -87,6 +95,17 @@ router.get('/history', authMiddleware, requirePlayer, async (req, res, next) => 
           isCorrect: true,
           eventId: eventId
         }
+      },
+      {
+        $lookup: {
+          from: 'challenges',
+          localField: 'challengeId',
+          foreignField: '_id',
+          as: 'challenge'
+        }
+      },
+      {
+        $unwind: '$challenge'
       },
       {
         $group: {
@@ -100,7 +119,7 @@ router.get('/history', authMiddleware, requirePlayer, async (req, res, next) => 
               }
             }
           },
-          count: { $sum: 1 }
+          pointsAwarded: { $sum: '$challenge.points' }
         }
       },
       {
@@ -123,13 +142,12 @@ router.get('/history', authMiddleware, requirePlayer, async (req, res, next) => 
       userScores[id.toString()] = 0;
     });
 
-    // Process submissions and calculate cumulative scores
+    // Process submissions and calculate cumulative scores based on actual challenge points
     submissions.forEach(sub => {
       const userId = sub._id.userId.toString();
       const time = sub._id.time;
 
-      // Get challenge points for this submission
-      userScores[userId] += sub.count;
+      userScores[userId] += sub.pointsAwarded;
 
       if (!timelineMap[time]) {
         timelineMap[time] = {};

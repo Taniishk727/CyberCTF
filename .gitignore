@@ -34,6 +34,7 @@ pnpm-debug.log*
 # =========================
 **/test-*.js
 **/seed.js
+!backend/seed.js
 coverage/
 .nyc_output/
 

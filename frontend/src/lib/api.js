@@ -9,10 +9,9 @@ export const clearBanBlock = () => {
   banBlocked = false;
 };
 
-// Determine API base URL with smart fallback strategy
-// Priority 1: VITE_API_URL environment variable (set in Vercel dashboard)
-// Priority 2: Production fallback to Render backend
-// Priority 3: Development proxy to localhost:5000
+// Determine API base URL
+// Priority 1: VITE_API_URL environment variable
+// Priority 2: Fallback to relative /api
 const getBaseURL = () => {
   const url = import.meta.env.VITE_API_URL;
   
@@ -20,12 +19,7 @@ const getBaseURL = () => {
     return url.trim();
   }
 
-  // Fallback if VITE_API_URL is missing
-  if (import.meta.env.DEV) {
-    return '/api'; // Use Vite proxy for local dev
-  }
-  
-  return 'https://cyberctf.onrender.com/api';
+  return '/api';
 };
 
 const api = axios.create({
@@ -76,10 +70,16 @@ api.interceptors.response.use(
     }
 
     // Handle 401 - Unauthorized
+    // Do NOT redirect if this was an authentication attempt (e.g. invalid password on login)
     if (error.response?.status === 401) {
-      localStorage.removeItem('ctf_token');
-      localStorage.removeItem('ctf_user');
-      window.location.href = '/';
+      const url = error.config?.url || '';
+      const isAuthAttempt = url.includes('/auth/admin/login') || url.includes('/auth/join') || url.includes('/auth/validate-pin');
+      
+      if (!isAuthAttempt) {
+        localStorage.removeItem('ctf_token');
+        localStorage.removeItem('ctf_user');
+        window.location.href = '/';
+      }
     }
     
     return Promise.reject(error);
@@ -88,7 +88,7 @@ api.interceptors.response.use(
 
 // Auth API
 export const authApi = {
-  join: (username, gamePin) => api.post('/auth/join', { username, gamePin }),
+  join: (username, gamePin, passcode) => api.post('/auth/join', { username, gamePin, passcode, password: passcode }),
   adminLogin: (username, password) => api.post('/auth/admin/login', { username, password }),
   validatePin: (gamePin) => api.post('/auth/validate-pin', { gamePin }),
   getMe: () => api.get('/auth/me')

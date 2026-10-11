@@ -4,23 +4,24 @@ import { authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// GET /api/categories - Get categories (optionally filter by eventId)
-// Using authMiddleware to optionally get user's eventId if not provided
+// GET /api/categories - Get categories for an event
 router.get('/', authMiddleware, async (req, res, next) => {
   try {
-    let { eventId } = req.query;
-    
-    // If no eventId in query, but user is logged in (player/admin), use their eventId
-    if (!eventId && req.user && req.user.eventId) {
+    let eventId;
+
+    if (req.user.role === 'player') {
+      // Strictly isolate players to their assigned event
       eventId = req.user.eventId;
+    } else {
+      // Admin can query specified eventId or fallback to user.eventId
+      eventId = req.query.eventId || req.user.eventId;
     }
 
-    const query = {};
-    if (eventId) {
-      query.eventId = eventId;
+    if (!eventId) {
+      return res.status(400).json({ message: 'Event ID is required' });
     }
 
-    const categories = await Category.find(query).sort({ name: 1 });
+    const categories = await Category.find({ eventId }).sort({ name: 1 });
 
     res.json({ categories });
   } catch (error) {

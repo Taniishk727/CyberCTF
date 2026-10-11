@@ -1,12 +1,35 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { Challenge, Submission, UnlockedHint, User } from '../models/index.js';
 import { authMiddleware, requirePlayer } from '../middleware/auth.js';
+import { requireEventActive, requireEventOpen } from '../middleware/eventStatus.js';
 import { invalidateLeaderboardCache } from '../utils/leaderboardCache.js';
 
 const router = express.Router();
 
+// Rate limiter for flag submissions (max 10 submissions per minute per user/IP)
+// Prevents brute-forcing flags and server CPU exhaustion via bcryptjs.compare
+const flagSubmitLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user?._id ? req.user._id.toString() : req.ip),
+  message: { message: 'Too many flag submissions. Please wait 1 minute before trying again.' }
+});
+
+// Rate limiter for hint unlocking (max 15 unlocks per minute)
+const hintUnlockLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user?._id ? req.user._id.toString() : req.ip),
+  message: { message: 'Too many hint unlock requests. Please wait a moment.' }
+});
+
 // GET /api/challenges - Get all challenges for player's event
-router.get('/', authMiddleware, requirePlayer, async (req, res, next) => {
+router.get('/', authMiddleware, requirePlayer, requireEventActive, async (req, res, next) => {
   try {
     const { eventId } = req.user;
 
@@ -59,7 +82,7 @@ router.get('/', authMiddleware, requirePlayer, async (req, res, next) => {
 });
 
 // GET /api/challenges/:id - Get single challenge
-router.get('/:id', authMiddleware, requirePlayer, async (req, res, next) => {
+router.get('/:id', authMiddleware, requirePlayer, requireEventActive, async (req, res, next) => {
   try {
     const challenge = await Challenge.findOne({
       _id: req.params.id,
@@ -101,13 +124,13 @@ router.get('/:id', authMiddleware, requirePlayer, async (req, res, next) => {
 });
 
 // POST /api/challenges/:id/submit - Submit flag
-router.post('/:id/submit', authMiddleware, requirePlayer, async (req, res, next) => {
+router.post('/:id/submit', authMiddleware, requirePlayer, requireEventOpen, flagSubmitLimiter, async (req, res, next) => {
   try {
     const { flag } = req.body;
     const challengeId = req.params.id;
     const userId = req.user._id;
 
-    if (!flag) {
+    if (!flag || typeof flag !== 'string') {
       return res.status(400).json({ message: 'Flag is required' });
     }
 
@@ -136,17 +159,25 @@ router.post('/:id/submit', authMiddleware, requirePlayer, async (req, res, next)
     // Verify flag using bcrypt (secure comparison)
     const isCorrect = await challenge.verifyFlag(flag);
 
-    // Create submission record
-    // SECURITY: Only store submitted flag if INCORRECT (prevents plaintext flag storage for correct submissions)
-    await Submission.create({
-      userId,
-      challengeId,
-      eventId: req.user.eventId,
-      isCorrect,
-      submittedFlag: isCorrect ? null : flag.trim()
-    });
-
     if (isCorrect) {
+      // ATOMIC CONCURRENCY FIX:
+      // Insert correct submission first. The unique partial index on (userId, challengeId) for isCorrect: true
+      // ensures that only ONE concurrent solve request will succeed.
+      try {
+        await Submission.create({
+          userId,
+          challengeId,
+          eventId: req.user.eventId,
+          isCorrect: true,
+          submittedFlag: null
+        });
+      } catch (subErr) {
+        if (subErr.code === 11000) {
+          return res.status(400).json({ message: 'You have already solved this challenge' });
+        }
+        throw subErr;
+      }
+
       // Update user score
       const updatedUser = await User.findByIdAndUpdate(userId, {
         $inc: { score: challenge.points }
@@ -168,7 +199,16 @@ router.post('/:id/submit', authMiddleware, requirePlayer, async (req, res, next)
       });
     }
 
-    // SECURITY: Generic response for incorrect flag (no hint about what's wrong)
+    // Incorrect flag: record submission for analytics
+    await Submission.create({
+      userId,
+      challengeId,
+      eventId: req.user.eventId,
+      isCorrect: false,
+      submittedFlag: flag.trim()
+    });
+
+    // SECURITY: Generic response for incorrect flag
     res.json({
       correct: false,
       message: 'Incorrect flag. Try again!'
@@ -179,11 +219,11 @@ router.post('/:id/submit', authMiddleware, requirePlayer, async (req, res, next)
 });
 
 // POST /api/challenges/:id/hints/:hintIndex/unlock - Unlock a hint
-router.post('/:id/hints/:hintIndex/unlock', authMiddleware, requirePlayer, async (req, res, next) => {
+router.post('/:id/hints/:hintIndex/unlock', authMiddleware, requirePlayer, requireEventOpen, hintUnlockLimiter, async (req, res, next) => {
   try {
     const { id: challengeId, hintIndex } = req.params;
     const userId = req.user._id;
-    const hintIdx = parseInt(hintIndex);
+    const hintIdx = parseInt(hintIndex, 10);
 
     const challenge = await Challenge.findOne({
       _id: challengeId,
@@ -195,11 +235,11 @@ router.post('/:id/hints/:hintIndex/unlock', authMiddleware, requirePlayer, async
       return res.status(404).json({ message: 'Challenge not found' });
     }
 
-    if (hintIdx < 0 || hintIdx >= challenge.hints.length) {
+    if (isNaN(hintIdx) || hintIdx < 0 || hintIdx >= challenge.hints.length) {
       return res.status(400).json({ message: 'Invalid hint index' });
     }
 
-    // Strictly strictly prevent purchasing hints after the challenge is already solved
+    // Strictly prevent purchasing hints after the challenge is already solved
     const alreadySolved = await Submission.findOne({
       userId,
       challengeId,
@@ -224,23 +264,33 @@ router.post('/:id/hints/:hintIndex/unlock', authMiddleware, requirePlayer, async
     const hint = challenge.hints[hintIdx];
     const cost = hint.cost;
 
-    // Check if user has enough points
-    const user = await User.findById(userId).select('score').lean();
-    if (user.score < cost) {
+    // ATOMIC POINT DEDUCTION FIX:
+    // Deduct points only if score >= cost atomically, avoiding race condition and negative scores
+    const updatedUser = await User.findOneAndUpdate(
+      { _id: userId, score: { $gte: cost } },
+      { $inc: { score: -cost } },
+      { new: true }
+    ).select('score');
+
+    if (!updatedUser) {
       return res.status(400).json({ message: 'Not enough points to unlock this hint' });
     }
 
-    // Deduct points and unlock hint
-    const updatedUser = await User.findByIdAndUpdate(userId, {
-      $inc: { score: -cost }
-    }, { new: true }).select('score');
-
-    await UnlockedHint.create({
-      userId,
-      challengeId,
-      hintIndex: hintIdx,
-      cost
-    });
+    try {
+      await UnlockedHint.create({
+        userId,
+        challengeId,
+        hintIndex: hintIdx,
+        cost
+      });
+    } catch (err) {
+      // Roll back score deduction if hint record creation fails
+      await User.findByIdAndUpdate(userId, { $inc: { score: cost } });
+      if (err.code === 11000) {
+        return res.status(400).json({ message: 'Hint already unlocked' });
+      }
+      throw err;
+    }
 
     invalidateLeaderboardCache(req.user.eventId);
 

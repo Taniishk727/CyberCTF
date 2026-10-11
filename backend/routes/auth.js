@@ -1,20 +1,45 @@
 import express from 'express';
+import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
 import { User, Event } from '../models/index.js';
 import { generateToken, authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
 const PLAYER_STARTING_SCORE = 150;
 
-// POST /api/auth/join - Player joins event with username + PIN
-// ✓ FIXED: Removed sessionToken assignment to allow multiple simultaneous sessions
-router.post('/join', async (req, res, next) => {
+// Rate limiter for admin login (max 5 attempts per 15 minutes per IP)
+const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many admin login attempts. Please try again after 15 minutes.' }
+});
+
+// Rate limiter for player join / login (max 30 requests per minute per IP)
+const joinLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many join requests. Please wait a moment.' }
+});
+
+// POST /api/auth/join - Player joins event with username + PIN + passcode
+router.post('/join', joinLimiter, async (req, res, next) => {
   try {
-    const { username, gamePin } = req.body;
+    const { username, gamePin, password, passcode } = req.body;
     const trimmedUsername = typeof username === 'string' ? username.trim() : '';
     const normalizedPin = typeof gamePin === 'string' ? gamePin.trim().toUpperCase() : '';
+    const playerSecret = typeof (password || passcode) === 'string' ? (password || passcode).trim() : '';
 
     if (!trimmedUsername || !normalizedPin) {
       return res.status(400).json({ message: 'Username and game PIN are required' });
+    }
+
+    // Require passcode to prevent account hijacking
+    if (!playerSecret || playerSecret.length < 4) {
+      return res.status(400).json({ message: 'Passcode is required (minimum 4 characters)' });
     }
 
     // Find the event by PIN
@@ -31,44 +56,73 @@ router.post('/join', async (req, res, next) => {
       username: trimmedUsername,
       eventId: event._id,
       role: 'player'
-    })
-      .select('_id username role score eventId isBanned status banReason banExpiresAt createdAt')
-      .lean();
+    }).select('+password');
 
-    const isPlayerBanned = player
-      && (player.isBanned || player.status === 'banned')
-      && (!player.banExpiresAt || player.banExpiresAt > new Date());
+    if (player) {
+      // Check ban status
+      const isPlayerBanned = (player.isBanned || player.status === 'banned')
+        && (!player.banExpiresAt || player.banExpiresAt > new Date());
 
-    if (isPlayerBanned) {
-      return res.status(403).json({
-        message: 'You are banned',
-        reason: player.banReason || 'Violation of rules',
-        banned: true
+      if (isPlayerBanned) {
+        return res.status(403).json({
+          message: 'You are banned',
+          reason: player.banReason || 'Violation of rules',
+          banned: true
+        });
+      }
+
+      // Verify passcode if account has password set
+      if (player.password) {
+        const isMatch = await player.comparePassword(playerSecret);
+        if (!isMatch) {
+          return res.status(401).json({ message: 'Incorrect passcode for this username' });
+        }
+      } else {
+        // Upgrade legacy passwordless account
+        player.password = playerSecret;
+        await player.save();
+      }
+
+      const token = generateToken(player);
+
+      return res.status(200).json({
+        message: 'Welcome back!',
+        token,
+        user: {
+          id: player._id,
+          username: player.username,
+          role: player.role,
+          score: player.score,
+          eventId: player.eventId
+        },
+        event: {
+          id: event._id,
+          name: event.name,
+          description: event.description
+        }
       });
     }
 
-    let message = 'Welcome back!';
-    let status = 200;
-
-    // If no existing user, create a new one (Join Flow)
-    if (!player) {
+    // Create new player account with password
+    try {
       player = await User.create({
         username: trimmedUsername,
+        password: playerSecret,
         role: 'player',
         eventId: event._id,
         score: PLAYER_STARTING_SCORE
       });
-      message = 'Joined event successfully';
-      status = 201;
+    } catch (err) {
+      if (err.code === 11000) {
+        return res.status(400).json({ message: 'Username is already taken in this event' });
+      }
+      throw err;
     }
 
-    // ✓ FIXED: Removed sessionToken assignment - JWT handles session validity via expiration
-    // Multiple simultaneous logins are now supported
-    
     const token = generateToken(player);
 
-    res.status(status).json({
-      message,
+    res.status(201).json({
+      message: 'Joined event successfully',
       token,
       user: {
         id: player._id,
@@ -89,8 +143,7 @@ router.post('/join', async (req, res, next) => {
 });
 
 // POST /api/auth/admin/login - Admin login with username + password
-// ✓ FIXED: Removed sessionToken assignment to allow multiple simultaneous sessions
-router.post('/admin/login', async (req, res, next) => {
+router.post('/admin/login', adminLoginLimiter, async (req, res, next) => {
   try {
     const { username, password } = req.body;
     const normalizedUsername = typeof username === 'string' ? username.trim() : '';
@@ -100,9 +153,13 @@ router.post('/admin/login', async (req, res, next) => {
       return res.status(400).json({ message: 'Username and password are required' });
     }
 
-    const admin = await User.findOne({ username: normalizedUsername, role: 'admin' }).select('_id username email password role isBanned status banReason banExpiresAt');
-    const isAdminBanned = admin
-      && (admin.isBanned || admin.status === 'banned')
+    const admin = await User.findOne({ username: normalizedUsername, role: 'admin' }).select('+password');
+
+    if (!admin) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    const isAdminBanned = (admin.isBanned || admin.status === 'banned')
       && (!admin.banExpiresAt || admin.banExpiresAt > new Date());
 
     if (isAdminBanned) {
@@ -113,20 +170,12 @@ router.post('/admin/login', async (req, res, next) => {
       });
     }
 
-
-    if (!admin) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
     const isMatch = await admin.comparePassword(normalizedPassword);
 
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // ✓ FIXED: Removed sessionToken assignment - JWT handles session validity via expiration
-    // Multiple simultaneous admin logins are now supported
-    
     const token = generateToken(admin);
 
     res.json({
@@ -205,15 +254,19 @@ router.post('/validate-pin', async (req, res, next) => {
 });
 
 // POST /api/auth/register-admin - Register first admin (protected with secret token)
-// IMPORTANT: This endpoint is only for initial admin setup
-// In production, use the ADMIN_REGISTRATION_TOKEN from environment variables
-router.post('/register-admin', async (req, res, next) => {
+router.post('/register-admin', adminLoginLimiter, async (req, res, next) => {
   try {
     const { email, password, registrationToken } = req.body;
 
-    // Verify registration token
+    // Verify registration token using constant-time comparison
     const secretToken = process.env.ADMIN_REGISTRATION_TOKEN;
-    if (!secretToken || secretToken !== registrationToken) {
+    if (!secretToken || typeof registrationToken !== 'string') {
+      return res.status(403).json({ message: 'Invalid or missing registration token' });
+    }
+
+    const secretBuffer = Buffer.from(secretToken);
+    const tokenBuffer = Buffer.from(registrationToken);
+    if (secretBuffer.length !== tokenBuffer.length || !crypto.timingSafeEqual(secretBuffer, tokenBuffer)) {
       return res.status(403).json({ message: 'Invalid or missing registration token' });
     }
 
@@ -239,7 +292,6 @@ router.post('/register-admin', async (req, res, next) => {
     }
 
     // Create admin user
-    // ✓ FIXED: Removed sessionToken assignment - JWT handles session validity via expiration
     const admin = await User.create({
       username: email.split('@')[0],
       email: email.toLowerCase(),
