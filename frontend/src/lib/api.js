@@ -148,6 +148,7 @@ export const adminApi = {
   
   // Users
   getUsers: (eventId, role) => api.get('/admin/users', { params: { eventId, role } }),
+  createUser: (data) => api.post('/admin/users', data),
   banUser: (id, banReason) => api.post(`/admin/ban/${id}`, { banReason }),
   unbanUser: (id) => api.post(`/admin/unban/${id}`),
   deleteUser: (id) => api.delete(`/admin/users/${id}`),

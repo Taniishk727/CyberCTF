@@ -376,6 +376,73 @@ router.get('/users', async (req, res, next) => {
   }
 });
 
+// POST /api/admin/users - Manually create a user
+router.post('/users', async (req, res, next) => {
+  try {
+    const { username, password, email, fullName, eventId } = req.body;
+    const trimmedUsername = typeof username === 'string' ? username.trim() : '';
+    const trimmedPassword = typeof password === 'string' ? password.trim() : '';
+    const trimmedEmail = typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : undefined;
+    const trimmedFullName = typeof fullName === 'string' ? fullName.trim() : '';
+
+    if (!trimmedUsername) {
+      return res.status(400).json({ message: 'Username is required' });
+    }
+
+    if (!trimmedPassword || trimmedPassword.length < 4) {
+      return res.status(400).json({ message: 'Password is required (minimum 4 characters)' });
+    }
+
+    // Check if user already exists
+    const existing = await User.findOne({
+      $or: [
+        { username: trimmedUsername },
+        ...(trimmedEmail ? [{ email: trimmedEmail }] : [])
+      ]
+    });
+
+    if (existing) {
+      if (existing.username.toLowerCase() === trimmedUsername.toLowerCase()) {
+        return res.status(400).json({ message: 'Username is already taken' });
+      }
+      return res.status(400).json({ message: 'Email is already registered to another account' });
+    }
+
+    let targetEventId = null;
+    if (eventId) {
+      const eventObjId = toObjectId(eventId);
+      if (eventObjId) {
+        const eventExists = await Event.findById(eventObjId);
+        if (eventExists) {
+          targetEventId = eventExists._id;
+        }
+      }
+    }
+
+    const salt = await bcryptjs.genSalt(10);
+    const hashedPassword = await bcryptjs.hash(trimmedPassword, salt);
+
+    const newUser = await User.create({
+      username: trimmedUsername,
+      password: hashedPassword,
+      email: trimmedEmail,
+      fullName: trimmedFullName,
+      role: 'player',
+      eventId: targetEventId,
+      score: PLAYER_STARTING_SCORE
+    });
+
+    invalidateLeaderboardCache(targetEventId);
+
+    res.status(201).json({
+      message: 'User created successfully',
+      user: sanitizeUser(newUser)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // PUT /api/admin/users/:id/status - Update user status
 router.put('/users/:id/status', async (req, res, next) => {
   try {

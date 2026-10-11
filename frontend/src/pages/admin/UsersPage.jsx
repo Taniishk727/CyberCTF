@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { adminApi } from '../../lib/api';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input } from '../../components/ui';
-import { Users, Search, Trash2, Trophy, Flag, Ban, CheckCircle, RotateCcw } from 'lucide-react';
+import { Users, Search, Trash2, Trophy, Flag, Ban, CheckCircle, RotateCcw, UserPlus, X } from 'lucide-react';
 import { formatDate, cn } from '../../lib/utils';
 import { useDialog } from '../../context/DialogContext';
 
@@ -12,6 +12,17 @@ export default function UsersPage() {
   const [selectedEvent, setSelectedEvent] = useState('');
   const [search, setSearch] = useState('');
   const { showAlert, showConfirm, showPrompt } = useDialog();
+
+  // Create User Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newUserData, setNewUserData] = useState({
+    username: '',
+    password: '',
+    email: '',
+    fullName: '',
+    eventId: ''
+  });
 
   const fetchData = async () => {
     try {
@@ -25,6 +36,34 @@ export default function UsersPage() {
       console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCreateUser = async (e) => {
+    e.preventDefault();
+    if (!newUserData.username.trim() || !newUserData.password.trim()) {
+      showAlert('Validation Error', 'Username and Password are required.', 'destructive');
+      return;
+    }
+
+    try {
+      setCreating(true);
+      await adminApi.createUser({
+        username: newUserData.username.trim(),
+        password: newUserData.password.trim(),
+        email: newUserData.email.trim() || undefined,
+        fullName: newUserData.fullName.trim() || undefined,
+        eventId: newUserData.eventId || selectedEvent || undefined
+      });
+
+      showAlert('Success', `User "${newUserData.username.trim()}" created successfully!`, 'success');
+      setIsModalOpen(false);
+      setNewUserData({ username: '', password: '', email: '', fullName: '', eventId: '' });
+      fetchData();
+    } catch (error) {
+      showAlert('Error', error.response?.data?.message || 'Failed to create user', 'destructive');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -124,12 +163,22 @@ export default function UsersPage() {
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
-      <div>
-        <h1 className="font-mono text-3xl font-bold text-foreground flex items-center gap-3">
-          <Users className="w-8 h-8 text-cyan-400" />
-          Players
-        </h1>
-        <p className="text-muted-foreground">{users.length} players</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="font-mono text-3xl font-bold text-foreground flex items-center gap-3">
+            <Users className="w-8 h-8 text-cyan-400" />
+            Players
+          </h1>
+          <p className="text-muted-foreground">{users.length} players</p>
+        </div>
+
+        <Button
+          onClick={() => setIsModalOpen(true)}
+          className="flex items-center gap-2 self-start sm:self-auto"
+        >
+          <UserPlus className="w-4 h-4" />
+          Add New User
+        </Button>
       </div>
 
       {/* Filters */}
@@ -262,6 +311,112 @@ export default function UsersPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Add New User Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-card border border-border/80 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-5 border-b border-border/50">
+              <div className="flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-primary" />
+                <h3 className="font-mono font-bold text-lg text-foreground">Add New User</h3>
+              </div>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="text-muted-foreground hover:text-foreground p-1 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateUser} className="p-5 space-y-4">
+              <div>
+                <label className="text-xs font-medium text-foreground block mb-1">
+                  Username / Student ID *
+                </label>
+                <Input
+                  required
+                  placeholder="e.g. C2K24101"
+                  value={newUserData.username}
+                  onChange={(e) => setNewUserData({ ...newUserData, username: e.target.value })}
+                  className="font-mono"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-foreground block mb-1">
+                  Password / Passcode *
+                </label>
+                <Input
+                  required
+                  type="password"
+                  placeholder="Minimum 4 characters"
+                  value={newUserData.password}
+                  onChange={(e) => setNewUserData({ ...newUserData, password: e.target.value })}
+                  className="font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-foreground block mb-1">
+                  Full Name (Optional)
+                </label>
+                <Input
+                  placeholder="e.g. John Doe"
+                  value={newUserData.fullName}
+                  onChange={(e) => setNewUserData({ ...newUserData, fullName: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-foreground block mb-1">
+                  Email Address (Optional)
+                </label>
+                <Input
+                  type="email"
+                  placeholder="e.g. john@college.edu"
+                  value={newUserData.email}
+                  onChange={(e) => setNewUserData({ ...newUserData, email: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-foreground block mb-1">
+                  Assign to Event
+                </label>
+                <select
+                  value={newUserData.eventId || selectedEvent}
+                  onChange={(e) => setNewUserData({ ...newUserData, eventId: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-input text-foreground text-sm"
+                >
+                  <option value="">No Event (Join with Game PIN later)</option>
+                  {events.map((event) => (
+                    <option key={event._id} value={event._id}>{event.name} (PIN: {event.gamePin})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-border/40">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  loading={creating}
+                  disabled={!newUserData.username.trim() || !newUserData.password.trim()}
+                >
+                  Create User
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
