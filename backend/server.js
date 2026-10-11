@@ -44,6 +44,7 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   'http://localhost:5173',
   'http://localhost:3000',
+  'https://cyber-ctf-seven.vercel.app/',
   'http://localhost:4173'
 ].filter(Boolean);
 
