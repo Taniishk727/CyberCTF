@@ -19,6 +19,30 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String
   },
+  fullName: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  emailDelivery: {
+    status: {
+      type: String,
+      enum: ['not_sent', 'pending', 'sent', 'failed'],
+      default: 'not_sent'
+    },
+    sentAt: {
+      type: Date,
+      default: null
+    },
+    error: {
+      type: String,
+      default: ''
+    },
+    messageId: {
+      type: String,
+      default: ''
+    }
+  },
   role: {
     type: String,
     enum: ['admin', 'player'],
@@ -58,9 +82,13 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Hash password before saving (only for admins)
+// Hash password before saving if modified and not already hashed with bcrypt
 userSchema.pre('save', async function() {
   if (!this.isModified('password') || !this.password) {
+    return;
+  }
+  // If already a bcrypt hash (starts with $2a$ or $2b$), do not double-hash
+  if (typeof this.password === 'string' && /^\$2[ab]\$\d{2}\$/.test(this.password)) {
     return;
   }
   const salt = await bcrypt.genSalt(10);

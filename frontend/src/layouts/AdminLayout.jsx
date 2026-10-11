@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useSession } from '../context/SessionContext';
 import { useDialog } from '../context/DialogContext';
-import { LayoutDashboard, Flag, Users, Shield, Terminal, LogOut, User, ChevronDown, Tag } from 'lucide-react';
+import { LayoutDashboard, Flag, Users, Shield, Terminal, LogOut, User, ChevronDown, Tag, UserPlus } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useState } from 'react';
 
@@ -9,6 +9,7 @@ const adminItems = [
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/admin/challenges', label: 'Manage Challenges', icon: Flag },
   { path: '/admin/categories', label: 'Manage Categories', icon: Tag },
+  { path: '/admin/participants', label: 'Participants & Credentials', icon: UserPlus },
   { path: '/admin/users', label: 'Manage Users', icon: Users }
 ];
 

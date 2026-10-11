@@ -23,6 +23,7 @@ const DashboardPage = lazy(() => import('./pages/admin/DashboardPage'));
 const AdminChallengesPage = lazy(() => import('./pages/admin/ChallengesPage'));
 const AdminCategoriesPage = lazy(() => import('./pages/admin/CategoriesPage'));
 const UsersPage = lazy(() => import('./pages/admin/UsersPage'));
+const ParticipantsPage = lazy(() => import('./pages/admin/ParticipantsPage'));
 const StreamerModePage = lazy(() => import('./pages/admin/StreamerModePage'));
 
 // Loading spinner
@@ -207,6 +208,16 @@ export default function App() {
             <AdminRoute>
               <AdminLayout>
                 <UsersPage />
+              </AdminLayout>
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/participants"
+          element={
+            <AdminRoute>
+              <AdminLayout>
+                <ParticipantsPage />
               </AdminLayout>
             </AdminRoute>
           }

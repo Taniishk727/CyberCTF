@@ -152,7 +152,17 @@ export const adminApi = {
   unbanUser: (id) => api.post(`/admin/unban/${id}`),
   deleteUser: (id) => api.delete(`/admin/users/${id}`),
   updateUserStatus: (id, status) => api.put(`/admin/users/${id}/status`, { status }),
-  resetUser: (id) => api.post(`/admin/users/${id}/reset`)
+  resetUser: (id) => api.post(`/admin/users/${id}/reset`),
+
+  // Participants & Bulk Credential Delivery
+  getEmailConfig: () => api.get('/admin/participants/email-config'),
+  sendTestEmail: (email) => api.post('/admin/participants/test-email', { email }),
+  previewParticipants: (rows, eventId) => api.post('/admin/participants/preview', { rows, eventId }),
+  createParticipants: (participants, eventId) => api.post('/admin/participants/create', { participants, eventId }),
+  getParticipants: (params) => api.get('/admin/participants', { params }),
+  sendCredentials: (batchId, loginUrl) => api.post('/admin/participants/send-credentials', { batchId, loginUrl }),
+  retryCredentials: (userIds, loginUrl, eventName) => api.post('/admin/participants/retry-credentials', { userIds, loginUrl, eventName }),
+  exportParticipantsUrl: (eventId) => `${getBaseURL()}/admin/participants/export${eventId ? `?eventId=${eventId}` : ''}`
 };
 
 export default api;

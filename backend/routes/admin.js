@@ -1,10 +1,12 @@
 import express from 'express';
+import crypto from 'crypto';
 import PDFDocument from 'pdfkit';
 import bcryptjs from 'bcryptjs';
 import mongoose from 'mongoose';
 import { User, Event, Challenge, Submission, UnlockedHint, Category } from '../models/index.js';
 import { authMiddleware, requireAdmin } from '../middleware/auth.js';
 import { invalidateLeaderboardCache } from '../utils/leaderboardCache.js';
+import { getResendClient, getEmailConfig, buildCredentialEmail, sendTestEmail } from '../utils/email.js';
 
 const router = express.Router();
 const { Types } = mongoose;
@@ -1047,4 +1049,682 @@ router.delete('/categories/:id', async (req, res, next) => {
   }
 });
 
+// ============ PARTICIPANT REGISTRATION & CREDENTIAL SYSTEM ============
+
+// Ephemeral in-memory store for pending credential delivery batches (TTL: 2 hours)
+// Never persists passwords to the database
+const pendingCredentialBatches = new Map();
+
+function cleanExpiredBatches() {
+  const now = Date.now();
+  for (const [batchId, item] of pendingCredentialBatches.entries()) {
+    if (now - item.createdAt > 2 * 60 * 60 * 1000) {
+      pendingCredentialBatches.delete(batchId);
+    }
+  }
+}
+
+// Generate a cryptographically secure random temporary password (minimum 10 chars, mixed alphanumeric)
+function generateSecureTemporaryPassword() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+  let pwd = '';
+  const bytes = crypto.randomBytes(12);
+  for (let i = 0; i < 12; i++) {
+    pwd += chars[bytes[i] % chars.length];
+  }
+  return pwd;
+}
+
+// Helper: validate student ID and email
+function isValidEmail(email) {
+  if (typeof email !== 'string') return false;
+  const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return regex.test(email.trim().toLowerCase());
+}
+
+function isValidStudentId(id) {
+  if (typeof id !== 'string') return false;
+  const trimmed = id.trim();
+  return trimmed.length >= 2 && trimmed.length <= 50;
+}
+
+// GET /api/admin/participants/email-config - Check Resend provider status
+router.get('/participants/email-config', (req, res) => {
+  const config = getEmailConfig();
+  res.json({
+    configured: config.configured,
+    fromEmail: config.fromEmail,
+    hasApiKey: config.hasApiKey
+  });
+});
+
+// POST /api/admin/participants/test-email - Send a test email to admin
+router.post('/participants/test-email', async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    const targetEmail = (email && typeof email === 'string' && email.trim()) || req.user.email;
+
+    if (!targetEmail || !isValidEmail(targetEmail)) {
+      return res.status(400).json({ message: 'A valid recipient email address is required for test email' });
+    }
+
+    const result = await sendTestEmail({ recipientEmail: targetEmail.trim() });
+    res.json({ message: `Test email sent successfully to ${targetEmail}`, result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/admin/participants/preview - Preview and validate CSV registration rows
+router.post('/participants/preview', async (req, res, next) => {
+  try {
+    const { rows, eventId } = req.body;
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ message: 'No rows provided in payload' });
+    }
+
+    if (rows.length > 500) {
+      return res.status(400).json({ message: 'Import limit exceeded (maximum 500 participants per batch)' });
+    }
+
+    const seenIds = new Set();
+    const seenEmails = new Set();
+    const candidateIds = [];
+    const candidateEmails = [];
+
+    rows.forEach(r => {
+      const studentId = typeof r.studentId === 'string' ? r.studentId.trim() : '';
+      const email = typeof r.email === 'string' ? r.email.trim().toLowerCase() : '';
+      if (studentId) candidateIds.push(studentId);
+      if (email) candidateEmails.push(email);
+    });
+
+    // Query DB for existing users with matching username or email
+    const [existingUsersById, existingUsersByEmail] = await Promise.all([
+      User.find({ username: { $in: candidateIds } }).select('_id username email role eventId status emailDelivery').lean(),
+      candidateEmails.length ? User.find({ email: { $in: candidateEmails } }).select('_id username email role eventId status emailDelivery').lean() : []
+    ]);
+
+    const existingIdMap = new Map(existingUsersById.map(u => [u.username.toLowerCase(), u]));
+    const existingEmailMap = new Map(existingUsersByEmail.map(u => [u.email.toLowerCase(), u]));
+
+    const validatedRows = [];
+    let validCount = 0;
+    let invalidCount = 0;
+    let duplicateInCsvCount = 0;
+    let existingAccountCount = 0;
+    let newAccountCount = 0;
+
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index];
+      const studentId = typeof row.studentId === 'string' ? row.studentId.trim() : '';
+      const fullName = typeof row.fullName === 'string' ? row.fullName.trim() : (row.name ? String(row.name).trim() : '');
+      const email = typeof row.email === 'string' ? row.email.trim().toLowerCase() : '';
+
+      const errors = [];
+
+      if (!studentId) {
+        errors.push('Student ID is missing');
+      } else if (!isValidStudentId(studentId)) {
+        errors.push('Student ID has invalid format');
+      }
+
+      if (!email) {
+        errors.push('Email address is missing');
+      } else if (!isValidEmail(email)) {
+        errors.push('Invalid email format');
+      }
+
+      // Check CSV duplicate
+      const lowerId = studentId.toLowerCase();
+      const lowerEmail = email.toLowerCase();
+
+      let isCsvDup = false;
+      if (studentId && seenIds.has(lowerId)) {
+        errors.push('Duplicate Student ID in file');
+        isCsvDup = true;
+      }
+      if (email && seenEmails.has(lowerEmail)) {
+        errors.push('Duplicate Email in file');
+        isCsvDup = true;
+      }
+
+      if (studentId) seenIds.add(lowerId);
+      if (email) seenEmails.add(lowerEmail);
+
+      // Check DB existing
+      const existingById = studentId ? existingIdMap.get(lowerId) : null;
+      const existingByEmail = email ? existingEmailMap.get(lowerEmail) : null;
+      const isExisting = Boolean(existingById || existingByEmail);
+
+      if (existingById) {
+        errors.push(`Account already exists with this Student ID (${existingById.role})`);
+      } else if (existingByEmail) {
+        errors.push(`Email already registered to account "${existingByEmail.username}"`);
+      }
+
+      const isValid = errors.length === 0;
+
+      if (isCsvDup) {
+        duplicateInCsvCount++;
+      } else if (isExisting) {
+        existingAccountCount++;
+      }
+
+      if (isValid) {
+        validCount++;
+        newAccountCount++;
+      } else {
+        invalidCount++;
+      }
+
+      validatedRows.push({
+        index,
+        studentId,
+        fullName,
+        email,
+        isValid,
+        isExisting,
+        isCsvDup,
+        errors,
+        existingUser: existingById ? { id: existingById._id, username: existingById.username, email: existingById.email } : null
+      });
+    }
+
+    res.json({
+      summary: {
+        totalRows: rows.length,
+        validCount,
+        invalidCount,
+        duplicateInCsvCount,
+        existingAccountCount,
+        newAccountCount
+      },
+      rows: validatedRows
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/admin/participants/create - Create accounts for validated participants
+router.post('/participants/create', async (req, res, next) => {
+  try {
+    const { participants, eventId } = req.body;
+
+    if (!Array.isArray(participants) || participants.length === 0) {
+      return res.status(400).json({ message: 'No participants provided for creation' });
+    }
+
+    let targetEventId = null;
+    let targetEventName = 'FlagHunters CTF';
+    if (eventId) {
+      const eventObjId = toObjectId(eventId);
+      if (eventObjId) {
+        const foundEvent = await Event.findById(eventObjId);
+        if (foundEvent) {
+          targetEventId = foundEvent._id;
+          targetEventName = foundEvent.name;
+        }
+      }
+    }
+
+    cleanExpiredBatches();
+
+    const createdUsers = [];
+    const skippedUsers = [];
+    const deliveryBatch = [];
+
+    for (const p of participants) {
+      const studentId = typeof p.studentId === 'string' ? p.studentId.trim() : '';
+      const fullName = typeof p.fullName === 'string' ? p.fullName.trim() : '';
+      const email = typeof p.email === 'string' ? p.email.trim().toLowerCase() : '';
+
+      if (!studentId || !isValidStudentId(studentId) || !email || !isValidEmail(email)) {
+        skippedUsers.push({ studentId, email, reason: 'Invalid ID or email format' });
+        continue;
+      }
+
+      // Check if user already exists
+      const existing = await User.findOne({
+        $or: [{ username: studentId }, { email }]
+      }).lean();
+
+      if (existing) {
+        skippedUsers.push({ studentId, email, reason: 'Account already exists' });
+        continue;
+      }
+
+      // Generate secure temporary password
+      const tempPassword = generateSecureTemporaryPassword();
+      const salt = await bcryptjs.genSalt(10);
+      const hashedPassword = await bcryptjs.hash(tempPassword, salt);
+
+      try {
+        const newUser = await User.create({
+          username: studentId,
+          email,
+          fullName,
+          password: hashedPassword,
+          role: 'player',
+          eventId: targetEventId,
+          score: PLAYER_STARTING_SCORE,
+          emailDelivery: {
+            status: 'not_sent',
+            sentAt: null,
+            error: '',
+            messageId: ''
+          }
+        });
+
+        createdUsers.push({
+          id: newUser._id,
+          username: newUser.username,
+          fullName: newUser.fullName,
+          email: newUser.email,
+          status: newUser.status,
+          emailDelivery: newUser.emailDelivery
+        });
+
+        // Store temporarily in memory batch for immediate or delayed credential sending
+        deliveryBatch.push({
+          userId: newUser._id.toString(),
+          studentId: newUser.username,
+          fullName: newUser.fullName,
+          email: newUser.email,
+          temporaryPassword: tempPassword
+        });
+      } catch (err) {
+        if (err.code === 11000) {
+          skippedUsers.push({ studentId, email, reason: 'Duplicate username or email collision' });
+        } else {
+          skippedUsers.push({ studentId, email, reason: err.message || 'Creation error' });
+        }
+      }
+    }
+
+    let batchId = null;
+    if (deliveryBatch.length > 0) {
+      batchId = crypto.randomUUID();
+      pendingCredentialBatches.set(batchId, {
+        batchId,
+        createdAt: Date.now(),
+        eventId: targetEventId ? targetEventId.toString() : null,
+        eventName: targetEventName,
+        items: deliveryBatch
+      });
+    }
+
+    res.status(201).json({
+      message: `Created ${createdUsers.length} participant account(s).`,
+      summary: {
+        createdCount: createdUsers.length,
+        skippedCount: skippedUsers.length
+      },
+      batchId,
+      createdUsers,
+      skippedUsers
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/admin/participants - List participants and delivery statuses with filtering
+router.get('/participants', async (req, res, next) => {
+  try {
+    const { eventId, search, deliveryStatus, status, limit = 200, skip = 0 } = req.query;
+
+    const query = { role: 'player' };
+
+    if (eventId) {
+      const eventObjId = toObjectId(eventId);
+      if (eventObjId) {
+        query.eventId = eventObjId;
+      }
+    }
+
+    if (deliveryStatus && ['not_sent', 'pending', 'sent', 'failed'].includes(deliveryStatus)) {
+      query['emailDelivery.status'] = deliveryStatus;
+    }
+
+    if (status && ['active', 'banned'].includes(status)) {
+      query.status = status;
+    }
+
+    if (search && typeof search === 'string' && search.trim() !== '') {
+      const regex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query.$or = [
+        { username: regex },
+        { fullName: regex },
+        { email: regex }
+      ];
+    }
+
+    const [participants, totalCount, statusCounts] = await Promise.all([
+      User.find(query)
+        .select('-password -sessionToken')
+        .populate('eventId', 'name gamePin')
+        .sort({ createdAt: -1 })
+        .limit(Number(limit))
+        .skip(Number(skip))
+        .lean(),
+      User.countDocuments(query),
+      User.aggregate([
+        { $match: { role: 'player' } },
+        {
+          $group: {
+            _id: '$emailDelivery.status',
+            count: { $sum: 1 }
+          }
+        }
+      ])
+    ]);
+
+    const deliveryBreakdown = {
+      not_sent: 0,
+      pending: 0,
+      sent: 0,
+      failed: 0
+    };
+    statusCounts.forEach(c => {
+      if (c._id && deliveryBreakdown[c._id] !== undefined) {
+        deliveryBreakdown[c._id] = c.count;
+      }
+    });
+
+    res.json({
+      total: totalCount,
+      deliveryBreakdown,
+      participants
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/admin/participants/send-credentials - Send credential emails for a batch
+router.post('/participants/send-credentials', async (req, res, next) => {
+  try {
+    const { batchId, loginUrl } = req.body;
+
+    if (!batchId || !pendingCredentialBatches.has(batchId)) {
+      return res.status(404).json({
+        message: 'Delivery batch not found or expired. Batch credentials are kept in memory for 2 hours after creation for security.'
+      });
+    }
+
+    const emailConfig = getEmailConfig();
+    const resend = getResendClient();
+
+    if (!emailConfig.configured || !resend) {
+      return res.status(503).json({
+        message: 'Resend email provider is not configured. Please set RESEND_API_KEY and EMAIL_FROM in backend environment.'
+      });
+    }
+
+    const batch = pendingCredentialBatches.get(batchId);
+    const items = batch.items;
+
+    if (!items || items.length === 0) {
+      return res.status(400).json({ message: 'No participants remaining in this delivery batch' });
+    }
+
+    const results = {
+      sent: 0,
+      failed: 0,
+      details: []
+    };
+
+    // Mark users as pending
+    const userIds = items.map(i => toObjectId(i.userId)).filter(Boolean);
+    await User.updateMany(
+      { _id: { $in: userIds } },
+      { $set: { 'emailDelivery.status': 'pending' } }
+    );
+
+    // Send emails in chunks of 5 with delay to respect provider rate limits (Resend default: 2 req/sec or 10 req/sec)
+    const CHUNK_SIZE = 5;
+    for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+      const chunk = items.slice(i, i + CHUNK_SIZE);
+
+      await Promise.all(
+        chunk.map(async (item) => {
+          try {
+            const { html, text } = buildCredentialEmail({
+              studentId: item.studentId,
+              fullName: item.fullName,
+              temporaryPassword: item.temporaryPassword,
+              loginUrl,
+              eventName: batch.eventName
+            });
+
+            const sendResult = await resend.emails.send({
+              from: emailConfig.fromEmail,
+              to: item.email,
+              subject: `🚩 ${batch.eventName || 'FlagHunters CTF'} — Your Account Credentials`,
+              html,
+              text
+            });
+
+            if (sendResult.error) {
+              throw new Error(sendResult.error.message || 'Send error from provider');
+            }
+
+            await User.findByIdAndUpdate(item.userId, {
+              $set: {
+                'emailDelivery.status': 'sent',
+                'emailDelivery.sentAt': new Date(),
+                'emailDelivery.messageId': sendResult.data?.id || '',
+                'emailDelivery.error': ''
+              }
+            });
+
+            results.sent++;
+            results.details.push({
+              studentId: item.studentId,
+              email: item.email,
+              status: 'sent',
+              messageId: sendResult.data?.id || ''
+            });
+          } catch (err) {
+            await User.findByIdAndUpdate(item.userId, {
+              $set: {
+                'emailDelivery.status': 'failed',
+                'emailDelivery.error': err.message || 'Delivery failed'
+              }
+            });
+
+            results.failed++;
+            results.details.push({
+              studentId: item.studentId,
+              email: item.email,
+              status: 'failed',
+              error: err.message || 'Failed to send'
+            });
+          }
+        })
+      );
+
+      // Brief pause between chunks to stay safely under rate limits
+      if (i + CHUNK_SIZE < items.length) {
+        await new Promise(r => setTimeout(r, 600));
+      }
+    }
+
+    // Clean up used batch from memory
+    pendingCredentialBatches.delete(batchId);
+
+    res.json({
+      message: `Completed credential dispatch: ${results.sent} sent, ${results.failed} failed.`,
+      results
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/admin/participants/retry-credentials - Securely regenerate temporary password and retry failed deliveries
+router.post('/participants/retry-credentials', async (req, res, next) => {
+  try {
+    const { userIds, loginUrl, eventName } = req.body;
+
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ message: 'No participant IDs provided for retry' });
+    }
+
+    const emailConfig = getEmailConfig();
+    const resend = getResendClient();
+
+    if (!emailConfig.configured || !resend) {
+      return res.status(503).json({
+        message: 'Resend email provider is not configured. Please set RESEND_API_KEY and EMAIL_FROM in backend environment.'
+      });
+    }
+
+    const objectIds = userIds.map(toObjectId).filter(Boolean);
+    const users = await User.find({ _id: { $in: objectIds }, role: 'player' });
+
+    if (users.length === 0) {
+      return res.status(404).json({ message: 'No matching player accounts found' });
+    }
+
+    const results = {
+      sent: 0,
+      failed: 0,
+      details: []
+    };
+
+    const CHUNK_SIZE = 5;
+    for (let i = 0; i < users.length; i += CHUNK_SIZE) {
+      const chunk = users.slice(i, i + CHUNK_SIZE);
+
+      await Promise.all(
+        chunk.map(async (user) => {
+          try {
+            if (!user.email || !isValidEmail(user.email)) {
+              throw new Error('User does not have a valid email address');
+            }
+
+            // Generate fresh secure temporary password and update hash
+            const tempPassword = generateSecureTemporaryPassword();
+            const salt = await bcryptjs.genSalt(10);
+            const hashedPassword = await bcryptjs.hash(tempPassword, salt);
+
+            user.password = hashedPassword;
+            user.emailDelivery.status = 'pending';
+            await user.save();
+
+            const { html, text } = buildCredentialEmail({
+              studentId: user.username,
+              fullName: user.fullName,
+              temporaryPassword: tempPassword,
+              loginUrl,
+              eventName: eventName || 'FlagHunters CTF'
+            });
+
+            const sendResult = await resend.emails.send({
+              from: emailConfig.fromEmail,
+              to: user.email,
+              subject: `🚩 ${eventName || 'FlagHunters CTF'} — Your Account Credentials (Updated)`,
+              html,
+              text
+            });
+
+            if (sendResult.error) {
+              throw new Error(sendResult.error.message || 'Send error from provider');
+            }
+
+            user.emailDelivery.status = 'sent';
+            user.emailDelivery.sentAt = new Date();
+            user.emailDelivery.messageId = sendResult.data?.id || '';
+            user.emailDelivery.error = '';
+            await user.save();
+
+            results.sent++;
+            results.details.push({
+              studentId: user.username,
+              email: user.email,
+              status: 'sent',
+              messageId: sendResult.data?.id || ''
+            });
+          } catch (err) {
+            user.emailDelivery.status = 'failed';
+            user.emailDelivery.error = err.message || 'Delivery retry failed';
+            await user.save();
+
+            results.failed++;
+            results.details.push({
+              studentId: user.username,
+              email: user.email,
+              status: 'failed',
+              error: err.message || 'Failed to send'
+            });
+          }
+        })
+      );
+
+      if (i + CHUNK_SIZE < users.length) {
+        await new Promise(r => setTimeout(r, 600));
+      }
+    }
+
+    res.json({
+      message: `Completed retry dispatch: ${results.sent} sent, ${results.failed} failed.`,
+      results
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/admin/participants/export - Export registration and delivery status as CSV
+router.get('/participants/export', async (req, res, next) => {
+  try {
+    const { eventId } = req.query;
+    const query = { role: 'player' };
+    if (eventId) {
+      const eventObjId = toObjectId(eventId);
+      if (eventObjId) query.eventId = eventObjId;
+    }
+
+    const participants = await User.find(query)
+      .select('username fullName email status emailDelivery createdAt')
+      .populate('eventId', 'name')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const headers = ['Student ID (Username)', 'Full Name', 'Email', 'Account Status', 'Email Delivery Status', 'Sent At', 'Error Details', 'Event Name', 'Registered Date'];
+    
+    const rows = participants.map(p => {
+      const regDate = p.createdAt ? new Date(p.createdAt) : null;
+      const regDateStr = regDate && !isNaN(regDate.getTime()) ? regDate.toISOString() : '';
+      const sentDate = p.emailDelivery?.sentAt ? new Date(p.emailDelivery.sentAt) : null;
+      const sentDateStr = sentDate && !isNaN(sentDate.getTime()) ? sentDate.toISOString() : '';
+
+      return [
+        `"${(p.username || '').replace(/"/g, '""')}"`,
+        `"${(p.fullName || '').replace(/"/g, '""')}"`,
+        `"${(p.email || '').replace(/"/g, '""')}"`,
+        `"${p.status || 'active'}"`,
+        `"${p.emailDelivery?.status || 'not_sent'}"`,
+        `"${sentDateStr}"`,
+        `"${(p.emailDelivery?.error || '').replace(/"/g, '""')}"`,
+        `"${(p.eventId?.name || '').replace(/"/g, '""')}"`,
+        `"${regDateStr}"`
+      ];
+    });
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="flaghunters_participants_${Date.now()}.csv"`);
+    res.send(csvContent);
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;
+

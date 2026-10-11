@@ -51,12 +51,27 @@ router.post('/join', joinLimiter, async (req, res, next) => {
       return res.status(404).json({ message: 'Invalid game PIN or event not active' });
     }
 
-    // Check if username already exists in this event
+    // 1. Check if user already exists in this event
     let player = await User.findOne({ 
       username: trimmedUsername,
       eventId: event._id,
       role: 'player'
     }).select('+password');
+
+    // 2. If not found in this event, check if registered without eventId (or for assignment)
+    if (!player) {
+      const unassignedPlayer = await User.findOne({
+        username: trimmedUsername,
+        eventId: null,
+        role: 'player'
+      }).select('+password');
+
+      if (unassignedPlayer) {
+        player = unassignedPlayer;
+        player.eventId = event._id;
+        await player.save();
+      }
+    }
 
     if (player) {
       // Check ban status
@@ -91,6 +106,8 @@ router.post('/join', joinLimiter, async (req, res, next) => {
         user: {
           id: player._id,
           username: player.username,
+          fullName: player.fullName,
+          email: player.email,
           role: player.role,
           score: player.score,
           eventId: player.eventId
@@ -101,6 +118,12 @@ router.post('/join', joinLimiter, async (req, res, next) => {
           description: event.description
         }
       });
+    }
+
+    // Check if username exists globally in another event to prevent confusing duplicates
+    const existingOther = await User.findOne({ username: trimmedUsername, role: 'player' });
+    if (existingOther) {
+      return res.status(400).json({ message: 'Student ID / Username is already registered for another event' });
     }
 
     // Create new player account with password
