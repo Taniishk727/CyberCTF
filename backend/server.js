@@ -9,7 +9,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { authRoutes, challengeRoutes, leaderboardRoutes, adminRoutes, userRoutes, categoryRoutes } from './routes/index.js';
+import { authRoutes, challengeRoutes, leaderboardRoutes, adminRoutes, userRoutes, categoryRoutes, emailRoutes } from './routes/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { connectDB } from './utils/db.js';
 
@@ -118,7 +118,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/categories', categoryRoutes);
 
-// Health check
+app.use('/api/email', emailRoutes);
 app.get('/api/health', (req, res) => {
   const dbConnected = mongoose.connection.readyState === 1;
   res.json({

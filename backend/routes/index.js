@@ -4,6 +4,7 @@ import leaderboardRoutes from './leaderboard.js';
 import adminRoutes from './admin.js';
 import userRoutes from './user.js';
 import categoryRoutes from './categories.js';
+import emailRoutes from './email.js';
 
 export {
   authRoutes,
@@ -11,5 +12,6 @@ export {
   leaderboardRoutes,
   adminRoutes,
   userRoutes,
-  categoryRoutes
+  categoryRoutes,
+  emailRoutes
 };
