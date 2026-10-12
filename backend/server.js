@@ -119,6 +119,8 @@ app.use('/api/user', userRoutes);
 app.use('/api/categories', categoryRoutes);
 
 app.use('/api/email', emailRoutes);
+
+// Health check
 app.get('/api/health', (req, res) => {
   const dbConnected = mongoose.connection.readyState === 1;
   res.json({
