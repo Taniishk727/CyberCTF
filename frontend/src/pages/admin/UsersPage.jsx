@@ -88,6 +88,29 @@ export default function UsersPage() {
     });
   };
 
+  const handleDeleteAll = async () => {
+    const scopeDescription = selectedEvent
+      ? `all players in event "${events.find(e => e._id === selectedEvent)?.name || 'selected event'}"`
+      : 'ALL players across all events';
+
+    showPrompt({
+      title: 'Delete All Players',
+      message: `DANGER: Are you sure you want to permanently delete ${scopeDescription}? All associated submissions and hint progress will also be erased. Type DELETE to confirm.`,
+      confirmText: 'Delete All',
+      expectedValue: 'DELETE',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          const res = await adminApi.deleteAllUsers(selectedEvent || undefined);
+          showAlert('Success', res.data?.message || 'Players deleted successfully', 'success');
+          fetchData();
+        } catch (error) {
+          showAlert('Error', error.response?.data?.message || 'Error deleting all users', 'destructive');
+        }
+      }
+    });
+  };
+
   const handleStatusUpdate = async (id, currentStatus) => {
     const isCurrentlyBanned = currentStatus === true;
 
@@ -172,13 +195,25 @@ export default function UsersPage() {
           <p className="text-muted-foreground">{users.length} players</p>
         </div>
 
-        <Button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 self-start sm:self-auto"
-        >
-          <UserPlus className="w-4 h-4" />
-          Add New User
-        </Button>
+        <div className="flex items-center gap-3 self-start sm:self-auto flex-wrap">
+          {users.length > 0 && (
+            <Button
+              variant="destructive"
+              onClick={handleDeleteAll}
+              className="flex items-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete All Players
+            </Button>
+          )}
+          <Button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2"
+          >
+            <UserPlus className="w-4 h-4" />
+            Add New User
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}

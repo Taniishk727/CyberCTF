@@ -590,6 +590,47 @@ router.delete('/users/:id', async (req, res, next) => {
   }
 });
 
+// DELETE /api/admin/users - Delete all players (optionally filtered by event)
+router.delete('/users', async (req, res, next) => {
+  try {
+    const { eventId } = req.query;
+    const query = { role: 'player' };
+
+    let eventObjectId = null;
+    if (eventId) {
+      eventObjectId = toObjectId(eventId);
+      if (eventObjectId) {
+        query.eventId = eventObjectId;
+      }
+    }
+
+    // Find all players matching the query to delete their submissions and unlocked hints
+    const playersToDelete = await User.find(query).select('_id eventId').lean();
+    const playerIds = playersToDelete.map(p => p._id);
+
+    if (playerIds.length === 0) {
+      return res.json({ message: 'No players found to delete', deletedCount: 0 });
+    }
+
+    await Promise.all([
+      User.deleteMany({ _id: { $in: playerIds } }),
+      Submission.deleteMany({ userId: { $in: playerIds } }),
+      UnlockedHint.deleteMany({ userId: { $in: playerIds } })
+    ]);
+
+    // Invalidate caches for affected events
+    const affectedEventIds = [...new Set(playersToDelete.map(p => p.eventId?.toString()).filter(Boolean))];
+    affectedEventIds.forEach(id => invalidateLeaderboardCache(id));
+
+    res.json({
+      message: `Successfully deleted ${playerIds.length} player(s)`,
+      deletedCount: playerIds.length
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ============ ANALYTICS ============
 
 // GET /api/admin/analytics/:eventId - Get visual analytics for an event

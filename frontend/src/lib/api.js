@@ -152,6 +152,7 @@ export const adminApi = {
   banUser: (id, banReason) => api.post(`/admin/ban/${id}`, { banReason }),
   unbanUser: (id) => api.post(`/admin/unban/${id}`),
   deleteUser: (id) => api.delete(`/admin/users/${id}`),
+  deleteAllUsers: (eventId) => api.delete('/admin/users', { params: { eventId } }),
   updateUserStatus: (id, status) => api.put(`/admin/users/${id}/status`, { status }),
   resetUser: (id) => api.post(`/admin/users/${id}/reset`),
 
