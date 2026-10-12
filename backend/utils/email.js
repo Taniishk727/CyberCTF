@@ -1,36 +1,156 @@
-import { Resend } from 'resend';
-
 /**
- * Resend email client helper.
- * Reads RESEND_API_KEY and EMAIL_FROM strictly from backend environment variables.
+ * backend/utils/email.js
+ *
+ * Gmail API email utility — replaces the previous Resend integration.
+ * All email dispatch is now performed via the Gmail API using the stored OAuth
+ * refresh token persisted in GmailCredential by backend/routes/email.js.
+ *
+ * Required environment variables (backend only, never exposed to frontend):
+ *   GMAIL_CLIENT_ID              – Google OAuth client ID
+ *   GMAIL_CLIENT_SECRET          – Google OAuth client secret
+ *   GMAIL_REDIRECT_URI           – Must match the registered callback URI
+ *   GMAIL_TOKEN_ENCRYPTION_KEY   – Base64-encoded 32-byte AES key
+ *
+ * The EMAIL_FROM and RESEND_API_KEY variables are no longer required.
  */
-let resendClient = null;
 
-export function getResendClient() {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey || apiKey.trim() === '') {
-    return null;
+import { google } from 'googleapis';
+import GmailCredential from '../models/GmailCredential.js';
+import { decrypt } from './crypto.js';
+
+// ---------------------------------------------------------------------------
+// OAuth2 client factory — reads env vars, throws early if misconfigured.
+// ---------------------------------------------------------------------------
+function buildOAuthClient() {
+  const clientId = process.env.GMAIL_CLIENT_ID?.trim();
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET?.trim();
+  const redirectUri = process.env.GMAIL_REDIRECT_URI?.trim();
+  if (!clientId || !clientSecret || !redirectUri) {
+    throw new Error(
+      'Gmail OAuth configuration missing. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REDIRECT_URI.'
+    );
   }
-  if (!resendClient) {
-    resendClient = new Resend(apiKey.trim());
-  }
-  return resendClient;
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-export function getEmailConfig() {
-  const apiKey = process.env.RESEND_API_KEY ? process.env.RESEND_API_KEY.trim() : '';
-  const fromEmail = process.env.EMAIL_FROM ? process.env.EMAIL_FROM.trim() : '';
-  const configured = Boolean(apiKey && fromEmail);
-  return {
-    configured,
-    fromEmail,
-    hasApiKey: Boolean(apiKey)
-  };
+// ---------------------------------------------------------------------------
+// getGmailConfig – returns connection status for the requesting admin.
+// When adminId is omitted (e.g. legacy callers), we try to find any credential.
+// ---------------------------------------------------------------------------
+export async function getGmailConfig(adminId) {
+  try {
+    const query = adminId ? { adminId } : {};
+    const credential = await GmailCredential.findOne(query).lean();
+    if (!credential) {
+      return { configured: false, fromEmail: null };
+    }
+    return { configured: true, fromEmail: credential.email || null };
+  } catch {
+    return { configured: false, fromEmail: null };
+  }
 }
 
-/**
- * Generates the clean HTML and Text template for participant credential delivery.
- */
+// ---------------------------------------------------------------------------
+// buildGmailClient – given an adminId, returns an authenticated Gmail client.
+// Throws a descriptive error if credentials are absent or decryption fails.
+// ---------------------------------------------------------------------------
+async function buildGmailClient(adminId) {
+  const credential = await GmailCredential.findOne({ adminId }).lean();
+  if (!credential) {
+    throw new Error(
+      'Gmail not connected. Ask an administrator to authorize Gmail via the Email Settings page.'
+    );
+  }
+
+  const refreshToken = decrypt(credential.encryptedToken);
+  const oauth2 = buildOAuthClient();
+  oauth2.setCredentials({ refresh_token: refreshToken });
+  return { gmail: google.gmail({ version: 'v1', auth: oauth2 }), fromEmail: credential.email };
+}
+
+// ---------------------------------------------------------------------------
+// encodeRawMessage – encodes a raw MIME message for the Gmail API.
+// ---------------------------------------------------------------------------
+function encodeRawMessage(from, to, subject, htmlBody, textBody) {
+  // Build a simple multipart/alternative MIME message
+  const boundary = `----=_Part_${Date.now()}`;
+  const mime = [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: quoted-printable',
+    '',
+    textBody,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    'Content-Transfer-Encoding: quoted-printable',
+    '',
+    htmlBody,
+    '',
+    `--${boundary}--`
+  ].join('\r\n');
+
+  return Buffer.from(mime).toString('base64url');
+}
+
+// ---------------------------------------------------------------------------
+// sendEmailViaGmail – sends a single email via the Gmail API.
+// Returns the Gmail message ID on success.
+// ---------------------------------------------------------------------------
+export async function sendEmailViaGmail({ adminId, to, subject, html, text }) {
+  const { gmail, fromEmail } = await buildGmailClient(adminId);
+
+  const raw = encodeRawMessage(fromEmail, to, subject, html, text || '');
+  const result = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw }
+  });
+
+  return result.data.id;
+}
+
+// ---------------------------------------------------------------------------
+// sendTestEmail – sends a test email from the admin's connected Gmail account.
+// Accepts { adminId, recipientEmail }.
+// ---------------------------------------------------------------------------
+export async function sendTestEmail({ adminId, recipientEmail }) {
+  if (!adminId) {
+    throw new Error('adminId is required to send a test email via Gmail.');
+  }
+
+  const { gmail, fromEmail } = await buildGmailClient(adminId);
+
+  const subject = '🚩 FlagHunters CTF — Test Email';
+  const html = `
+    <div style="font-family: sans-serif; padding: 20px;">
+      <h2>FlagHunters Email System Test</h2>
+      <p>This is a verification email from your CTF platform.</p>
+      <p>Provider: <strong>Gmail API</strong></p>
+      <p>Authorized sender: <strong>${fromEmail}</strong></p>
+      <p>Timestamp: ${new Date().toISOString()}</p>
+    </div>
+  `.trim();
+  const text = `FlagHunters Email System Test — sent via Gmail API from ${fromEmail} at ${new Date().toISOString()}`;
+
+  const raw = encodeRawMessage(fromEmail, recipientEmail, subject, html, text);
+  const result = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw }
+  });
+
+  return { gmailMessageId: result.data.id, fromEmail };
+}
+
+// ---------------------------------------------------------------------------
+// buildCredentialEmail – generates HTML and plain-text credential email bodies.
+// Unchanged from previous implementation — provider-agnostic.
+// ---------------------------------------------------------------------------
 export function buildCredentialEmail({ studentId, fullName, temporaryPassword, loginUrl, eventName }) {
   const recipientName = fullName && fullName.trim() ? fullName.trim() : studentId;
   const targetUrl = loginUrl || process.env.FRONTEND_URL || 'https://cyber-ctf-seven.vercel.app';
@@ -114,36 +234,15 @@ FlagHunters CTF Team
   return { html, text };
 }
 
-/**
- * Sends a single test email to confirm provider configuration.
- */
-export async function sendTestEmail({ recipientEmail }) {
-  const client = getResendClient();
-  const config = getEmailConfig();
+// ---------------------------------------------------------------------------
+// Legacy no-op stubs — kept so any import that only calls these doesn't crash.
+// They throw descriptive errors if actually invoked.
+// ---------------------------------------------------------------------------
+export function getResendClient() {
+  return null;
+}
 
-  if (!config.configured || !client) {
-    throw new Error('Resend is not configured. Both RESEND_API_KEY and EMAIL_FROM must be set.');
-  }
-
-  const { data, error } = await client.emails.send({
-    from: config.fromEmail,
-    to: recipientEmail,
-    subject: '🚩 FlagHunters CTF - Test Email Notification',
-    html: `
-      <div style="font-family: sans-serif; padding: 20px;">
-        <h2>FlagHunters Email System Test</h2>
-        <p>This is a verification email from your CTF platform.</p>
-        <p>Provider: <strong>Resend</strong></p>
-        <p>Sender: <strong>${config.fromEmail}</strong></p>
-        <p>Timestamp: ${new Date().toISOString()}</p>
-      </div>
-    `,
-    text: `FlagHunters Email System Test: This is a verification email from your CTF platform sent to ${recipientEmail}.`
-  });
-
-  if (error) {
-    throw new Error(error.message || 'Resend API returned an error');
-  }
-
-  return data;
+export function getEmailConfig() {
+  // Always returns unconfigured — Resend is no longer used.
+  return { configured: false, fromEmail: null, hasApiKey: false };
 }

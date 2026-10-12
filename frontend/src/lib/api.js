@@ -164,7 +164,23 @@ export const adminApi = {
   getParticipants: (params) => api.get('/admin/participants', { params }),
   sendCredentials: (batchId, loginUrl) => api.post('/admin/participants/send-credentials', { batchId, loginUrl }),
   retryCredentials: (userIds, loginUrl, eventName) => api.post('/admin/participants/retry-credentials', { userIds, loginUrl, eventName }),
-  exportParticipantsUrl: (eventId) => `${getBaseURL()}/admin/participants/export${eventId ? `?eventId=${eventId}` : ''}`
+  exportParticipantsUrl: (eventId) => {
+    const token = localStorage.getItem('ctf_token');
+    const query = [
+      eventId ? `eventId=${eventId}` : '',
+      token ? `token=${token}` : ''
+    ].filter(Boolean).join('&');
+    return `${getBaseURL()}/admin/participants/export${query ? `?${query}` : ''}`;
+  },
+
+  // Gmail integration
+  gmailStatus: () => api.get('/email/status'),
+  connectGmail: () => api.get('/email/oauth/connect?format=json'),
+  sendGmailTest: (to) => api.post('/email/test', { to }),
+  connectGmailUrl: () => {
+    const token = localStorage.getItem('ctf_token');
+    return `${getBaseURL()}/email/oauth/connect${token ? `?token=${token}` : ''}`;
+  }
 };
 
 export default api;

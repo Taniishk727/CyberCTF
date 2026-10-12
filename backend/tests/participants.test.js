@@ -4,17 +4,22 @@ import http from 'node:http';
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 
 // Setup environment variables before imports
+// Notice: RESEND_API_KEY and EMAIL_FROM are completely omitted!
 process.env.VERCEL = '1';
 process.env.NODE_ENV = 'production';
 process.env.JWT_SECRET = 'test-secret-key-12345678901234567890';
 process.env.FRONTEND_URL = 'https://cyber-ctf-seven.vercel.app';
-process.env.RESEND_API_KEY = 're_test_dummy_key_12345';
-process.env.EMAIL_FROM = 'FlagHunters CTF <test@ctf.local>';
+process.env.GMAIL_CLIENT_ID = 'test-client-id-12345.apps.googleusercontent.com';
+process.env.GMAIL_CLIENT_SECRET = 'test-client-secret-98765';
+process.env.GMAIL_REDIRECT_URI = 'https://cyberctf-rg8k.onrender.com/api/email/oauth/callback';
+process.env.GMAIL_TOKEN_ENCRYPTION_KEY = crypto.randomBytes(32).toString('base64');
 
 // Mock mongoose connection so tests can exercise routes without an external MongoDB server
 const memoryUsers = [];
+const memoryCredentials = [];
 const memoryEvents = [{
   _id: new mongoose.Types.ObjectId(),
   name: 'FlagHunters 2026',
@@ -39,9 +44,55 @@ const fakeDb = {
 mongoose.connection.db = fakeDb;
 Object.defineProperty(mongoose.connection, 'readyState', { value: 1, configurable: true });
 
+// Mock googleapis
+const sentGmailMessages = [];
+const { google } = await import('googleapis');
+google.auth = google.auth || {};
+google.auth.OAuth2 = class MockOAuth2 {
+  constructor(clientId, clientSecret, redirectUri) {
+    this.clientId = clientId;
+    this.clientSecret = clientSecret;
+    this.redirectUri = redirectUri;
+  }
+  generateAuthUrl({ scope, state, access_type }) {
+    return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${this.clientId}&redirect_uri=${encodeURIComponent(this.redirectUri)}&scope=${encodeURIComponent(scope.join(' '))}&state=${state}&access_type=${access_type}`;
+  }
+  getToken(code) {
+    if (code === 'valid-code') {
+      return Promise.resolve({
+        tokens: {
+          access_token: 'mock-access-token',
+          refresh_token: 'mock-refresh-token-123',
+          token_type: 'Bearer',
+          expiry_date: Date.now() + 3600000
+        }
+      });
+    }
+    return Promise.reject(new Error('Invalid grant code'));
+  }
+  setCredentials(tokens) {
+    this.credentials = tokens;
+  }
+};
+
+google.gmail = () => ({
+  users: {
+    getProfile: () => Promise.resolve({ data: { emailAddress: 'cybercell@pict.edu' } }),
+    messages: {
+      send: ({ requestBody }) => {
+        const id = `gmail_msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        sentGmailMessages.push({ id, raw: requestBody?.raw });
+        return Promise.resolve({ data: { id } });
+      }
+    }
+  }
+});
+
 const { default: app } = await import('../server.js');
 const { default: User } = await import('../models/User.js');
 const { default: Event } = await import('../models/Event.js');
+const { default: GmailCredential } = await import('../models/GmailCredential.js');
+const { encrypt } = await import('../utils/crypto.js');
 
 // Helper to generate admin and player JWT tokens
 const adminUserId = new mongoose.Types.ObjectId().toString();
@@ -63,7 +114,7 @@ function getPlayerToken() {
   );
 }
 
-describe('Bulk Participant Registration and Credential System Suite', () => {
+describe('Gmail API Migration & Bulk Participants Suite', () => {
   let server;
   let baseUrl;
   let adminToken;
@@ -80,13 +131,31 @@ describe('Bulk Participant Registration and Credential System Suite', () => {
         _id: id,
         role: id?.toString() === playerUserId ? 'player' : 'admin',
         username: id?.toString() === playerUserId ? 'testplayer' : 'superadmin',
-        email: 'admin@ctf.local',
+        email: 'admin@pict.edu',
         isBanned: false,
         status: 'active'
       };
       return {
         select: () => Promise.resolve(userDoc),
         then: (resolve) => resolve(userDoc)
+      };
+    };
+
+    User.findByIdAndUpdate = (id, update) => {
+      const match = memoryUsers.find(u => u._id.toString() === id?.toString());
+      if (match && update.$set) {
+        Object.assign(match, update.$set);
+        if (update.$set['emailDelivery.status']) {
+          match.emailDelivery = match.emailDelivery || {};
+          match.emailDelivery.status = update.$set['emailDelivery.status'];
+          match.emailDelivery.sentAt = update.$set['emailDelivery.sentAt'];
+          match.emailDelivery.messageId = update.$set['emailDelivery.messageId'];
+          match.emailDelivery.error = update.$set['emailDelivery.error'];
+        }
+      }
+      return {
+        select: () => Promise.resolve(match),
+        then: (resolve) => resolve(match)
       };
     };
 
@@ -140,6 +209,18 @@ describe('Bulk Participant Registration and Credential System Suite', () => {
       };
     };
 
+    User.updateMany = (query, update) => {
+      if (query?._id?.$in) {
+        const idStrs = query._id.$in.map(i => i.toString());
+        memoryUsers.forEach(u => {
+          if (idStrs.includes(u._id.toString()) && update.$set) {
+            Object.assign(u, update.$set);
+          }
+        });
+      }
+      return Promise.resolve({ acknowledged: true, modifiedCount: query?._id?.$in?.length || 0 });
+    };
+
     User.create = (doc) => {
       const newUser = {
         _id: new mongoose.Types.ObjectId(),
@@ -167,6 +248,20 @@ describe('Bulk Participant Registration and Credential System Suite', () => {
       };
     };
 
+    Event.findById = (id) => {
+      const match = memoryEvents.find(e => e._id.toString() === id?.toString());
+      return Promise.resolve(match || null);
+    };
+
+    // Mock GmailCredential queries
+    GmailCredential.findOne = (query) => {
+      const match = memoryCredentials.find(c => !query.adminId || c.adminId?.toString() === query.adminId?.toString());
+      return {
+        lean: () => Promise.resolve(match ? { ...match } : null),
+        then: (resolve) => resolve(match ? { ...match } : null)
+      };
+    };
+
     await new Promise((resolve) => {
       server = http.createServer(app);
       server.listen(0, '127.0.0.1', () => {
@@ -182,31 +277,47 @@ describe('Bulk Participant Registration and Credential System Suite', () => {
   });
 
   test('1. Unauthorized or player requests to participant endpoints are rejected with 401/403', async () => {
-    // No token
     const resNoToken = await fetch(`${baseUrl}/api/admin/participants/email-config`);
     assert.strictEqual(resNoToken.status, 401);
 
-    // Player token
     const resPlayer = await fetch(`${baseUrl}/api/admin/participants/email-config`, {
       headers: { Authorization: `Bearer ${playerToken}` }
     });
     assert.strictEqual(resPlayer.status, 403);
   });
 
-  test('2. Admin can fetch email provider config securely without leaking secret key', async () => {
-    const res = await fetch(`${baseUrl}/api/admin/participants/email-config`, {
+  test('2. Admin checks Gmail provider status: shows disconnected initially, then connected once credential exists', async () => {
+    // When no credential exists
+    const resDisconnected = await fetch(`${baseUrl}/api/admin/participants/email-config`, {
       headers: { Authorization: `Bearer ${adminToken}` }
     });
-    assert.strictEqual(res.status, 200);
-    const data = await res.json();
-    assert.strictEqual(data.configured, true);
-    assert.strictEqual(data.hasApiKey, true);
-    assert.strictEqual(data.fromEmail, 'FlagHunters CTF <test@ctf.local>');
-    assert.strictEqual(data.apiKey, undefined, 'API key must NEVER be exposed');
+    assert.strictEqual(resDisconnected.status, 200);
+    const dataDisc = await resDisconnected.json();
+    assert.strictEqual(dataDisc.configured, false);
+    assert.strictEqual(dataDisc.provider, 'gmail');
+
+    // Add encrypted credential in memory
+    const encryptedToken = encrypt('mock-refresh-token-xyz');
+    memoryCredentials.push({
+      _id: new mongoose.Types.ObjectId(),
+      adminId: adminUserId,
+      email: 'cybercell@pict.edu',
+      encryptedToken
+    });
+
+    // When credential exists
+    const resConnected = await fetch(`${baseUrl}/api/admin/participants/email-config`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    assert.strictEqual(resConnected.status, 200);
+    const dataConn = await resConnected.json();
+    assert.strictEqual(dataConn.configured, true);
+    assert.strictEqual(dataConn.fromEmail, 'cybercell@pict.edu');
+    assert.strictEqual(dataConn.provider, 'gmail');
+    assert.strictEqual(dataConn.encryptedToken, undefined, 'Tokens must NEVER be exposed');
   });
 
   test('3. CSV preview validates missing fields, duplicate IDs, malformed emails, and existing DB accounts', async () => {
-    // Seed an existing user first
     memoryUsers.push({
       _id: new mongoose.Types.ObjectId(),
       username: 'EXISTING_ID_01',
@@ -236,7 +347,7 @@ describe('Bulk Participant Registration and Credential System Suite', () => {
     assert.strictEqual(res.status, 200);
     const data = await res.json();
     assert.strictEqual(data.summary.totalRows, 6);
-    assert.strictEqual(data.summary.validCount, 2); // STU1001 and STU1003 (first instance)
+    assert.strictEqual(data.summary.validCount, 2);
     assert.strictEqual(data.summary.duplicateInCsvCount, 1);
     assert.strictEqual(data.summary.existingAccountCount, 1);
     assert.strictEqual(data.rows[0].isValid, true);
@@ -257,7 +368,7 @@ describe('Bulk Participant Registration and Credential System Suite', () => {
         Authorization: `Bearer ${adminToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ participants: participantsToCreate })
+      body: JSON.stringify({ participants: participantsToCreate, eventId: memoryEvents[0]._id.toString() })
     });
 
     assert.strictEqual(res.status, 201);
@@ -266,7 +377,6 @@ describe('Bulk Participant Registration and Credential System Suite', () => {
     assert.ok(data.batchId, 'Should return batchId for credential dispatch');
     assert.strictEqual(data.createdUsers[0].username, 'STU2001');
 
-    // Verify stored user in memory has bcrypt hashed password, not plaintext
     const createdUser = memoryUsers.find(u => u.username === 'STU2001');
     assert.ok(createdUser);
     assert.ok(createdUser.password.startsWith('$2a$') || createdUser.password.startsWith('$2b$'));
@@ -295,7 +405,6 @@ describe('Bulk Participant Registration and Credential System Suite', () => {
   });
 
   test('6. Registered participant can authenticate and join event with student ID and password', async () => {
-    // Create participant with known password
     const plainPass = 'SecretPass123!';
     const salt = await bcrypt.genSalt(10);
     const hash = await bcrypt.hash(plainPass, salt);
@@ -318,7 +427,6 @@ describe('Bulk Participant Registration and Credential System Suite', () => {
     };
     memoryUsers.push(testParticipant);
 
-    // Attempt join with wrong password
     const resBad = await fetch(`${baseUrl}/api/auth/join`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -330,7 +438,6 @@ describe('Bulk Participant Registration and Credential System Suite', () => {
     });
     assert.strictEqual(resBad.status, 401);
 
-    // Attempt join with correct password
     const resGood = await fetch(`${baseUrl}/api/auth/join`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -353,7 +460,114 @@ describe('Bulk Participant Registration and Credential System Suite', () => {
     });
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.headers.get('content-type'), 'text/csv; charset=utf-8');
-    const text = await res.send ? await res.text() : await res.text();
+    const text = await res.text();
     assert.ok(text.includes('Student ID (Username),Full Name,Email'));
+  });
+
+  test('8. Admin test-email endpoint sends email via Gmail API and returns message ID', async () => {
+    const prevCount = sentGmailMessages.length;
+    const res = await fetch(`${baseUrl}/api/admin/participants/test-email`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ email: 'testrecipient@pict.edu' })
+    });
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.ok(data.result?.gmailMessageId);
+    assert.strictEqual(sentGmailMessages.length, prevCount + 1);
+  });
+
+  test('9. Bulk credential dispatch uses Gmail API and marks recipients as sent', async () => {
+    // Create new batch
+    const createRes = await fetch(`${baseUrl}/api/admin/participants/create`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        participants: [
+          { studentId: 'BATCH_USER_01', fullName: 'Batch User 1', email: 'batch1@pict.edu' }
+        ],
+        eventId: memoryEvents[0]._id.toString()
+      })
+    });
+    const createData = await createRes.json();
+    const batchId = createData.batchId;
+    assert.ok(batchId);
+
+    const prevCount = sentGmailMessages.length;
+    const dispatchRes = await fetch(`${baseUrl}/api/admin/participants/send-credentials`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        batchId,
+        loginUrl: 'https://cyber-ctf-seven.vercel.app'
+      })
+    });
+    assert.strictEqual(dispatchRes.status, 200);
+    const dispatchData = await dispatchRes.json();
+    assert.strictEqual(dispatchData.results.sent, 1);
+    assert.strictEqual(dispatchData.results.failed, 0);
+    assert.strictEqual(sentGmailMessages.length, prevCount + 1);
+
+    const updatedUser = memoryUsers.find(u => u.username === 'BATCH_USER_01');
+    assert.strictEqual(updatedUser.emailDelivery.status, 'sent');
+    assert.ok(updatedUser.emailDelivery.messageId);
+  });
+
+  test('10. Retry credential delivery regenerates temporary password and dispatches via Gmail API', async () => {
+    const failedUser = {
+      _id: new mongoose.Types.ObjectId(),
+      username: 'RETRY_USER_01',
+      fullName: 'Retry Player',
+      email: 'retry@pict.edu',
+      password: 'oldhash',
+      role: 'player',
+      eventId: memoryEvents[0]._id,
+      score: 150,
+      status: 'active',
+      isBanned: false,
+      emailDelivery: { status: 'failed', sentAt: null, error: 'Previous failure', messageId: '' },
+      save: async function() { return this; }
+    };
+    memoryUsers.push(failedUser);
+
+    const prevCount = sentGmailMessages.length;
+    const res = await fetch(`${baseUrl}/api/admin/participants/retry-credentials`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        userIds: [failedUser._id.toString()],
+        loginUrl: 'https://cyber-ctf-seven.vercel.app',
+        eventName: 'FlagHunters 2026'
+      })
+    });
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(data.results.sent, 1);
+    assert.strictEqual(sentGmailMessages.length, prevCount + 1);
+
+    assert.strictEqual(failedUser.emailDelivery.status, 'sent');
+    assert.notStrictEqual(failedUser.password, 'oldhash');
+  });
+
+  test('11. OAuth connect route returns Google auth URL with gmail.send scope', async () => {
+    const res = await fetch(`${baseUrl}/api/email/oauth/connect?format=json`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.ok(data.url.includes('accounts.google.com'));
+    assert.ok(data.url.includes('gmail.send'));
   });
 });

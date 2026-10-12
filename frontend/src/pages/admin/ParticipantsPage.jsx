@@ -39,6 +39,7 @@ export default function ParticipantsPage() {
   const [sendingCredentials, setSendingCredentials] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
   const [retryingFailed, setRetryingFailed] = useState(false);
+  const [connectingGmail, setConnectingGmail] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -82,6 +83,17 @@ export default function ParticipantsPage() {
 
   useEffect(() => {
     loadData();
+
+    // Check for OAuth redirect query parameters
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('gmail') === 'connected') {
+      showAlert('Gmail Connected', 'Your official Gmail account has been successfully linked and authorized to dispatch credential emails!', 'success');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (params.get('gmail') === 'error') {
+      const errMsg = params.get('error') || 'Failed to authorize Gmail account.';
+      showAlert('Gmail Connection Failed', errMsg, 'destructive');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }, []);
 
   useEffect(() => {
@@ -252,17 +264,33 @@ export default function ParticipantsPage() {
     });
   };
 
+  const handleConnectGmail = async () => {
+    try {
+      setConnectingGmail(true);
+      const res = await adminApi.connectGmail();
+      if (res.data?.url) {
+        window.location.href = res.data.url;
+      } else {
+        window.location.href = adminApi.connectGmailUrl();
+      }
+    } catch {
+      window.location.href = adminApi.connectGmailUrl();
+    } finally {
+      setConnectingGmail(false);
+    }
+  };
+
   const handleSendCredentials = async () => {
     if (!activeBatch) return;
 
     if (!emailConfig.configured) {
-      showAlert('Email Not Configured', 'Resend API key or sender email is missing. Set RESEND_API_KEY and EMAIL_FROM on Render.', 'destructive');
+      showAlert('Gmail Not Connected', 'Please connect your official Gmail account first before dispatching credentials.', 'destructive');
       return;
     }
 
     showConfirm({
       title: 'Send Credential Emails',
-      message: `Send individual credential emails to ${activeBatch.count} newly registered participant(s)?`,
+      message: `Send individual credential emails to ${activeBatch.count} newly registered participant(s) via official Gmail (${emailConfig.fromEmail || 'Gmail'})?`,
       confirmText: 'Dispatch Emails',
       variant: 'default',
       onConfirm: async () => {
@@ -273,7 +301,7 @@ export default function ParticipantsPage() {
           setActiveBatch(null);
           loadParticipants();
         } catch (err) {
-          showAlert('Delivery Error', err.response?.data?.message || 'Failed to dispatch emails', 'destructive');
+          showAlert('Delivery Error', err.response?.data?.message || 'Failed to dispatch emails via Gmail', 'destructive');
         } finally {
           setSendingCredentials(false);
         }
@@ -282,15 +310,20 @@ export default function ParticipantsPage() {
   };
 
   const handleSendTestEmail = async () => {
+    if (!emailConfig.configured) {
+      showAlert('Gmail Not Connected', 'Please connect your official Gmail account first before sending a test email.', 'destructive');
+      return;
+    }
+
     const testEmail = window.prompt('Enter recipient email for test:', emailConfig.fromEmail || '');
     if (!testEmail || !testEmail.trim()) return;
 
     try {
       setSendingTest(true);
       const res = await adminApi.sendTestEmail(testEmail.trim());
-      showAlert('Test Email Sent', res.data.message, 'success');
+      showAlert('Test Email Sent', res.data.message || `Test email sent to ${testEmail.trim()} via Gmail API`, 'success');
     } catch (err) {
-      showAlert('Test Failed', err.response?.data?.message || 'Could not send test email', 'destructive');
+      showAlert('Test Failed', err.response?.data?.message || 'Could not send test email via Gmail', 'destructive');
     } finally {
       setSendingTest(false);
     }
@@ -340,7 +373,7 @@ export default function ParticipantsPage() {
             Bulk Participants & Credentials
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Import registrations from Google Forms, auto-generate temporary credentials, and dispatch transactional emails via Resend.
+            Import registrations from Google Forms, auto-generate temporary credentials, and dispatch transactional emails via Gmail API.
           </p>
         </div>
 
@@ -359,16 +392,28 @@ export default function ParticipantsPage() {
             ))}
           </select>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSendTestEmail}
-            loading={sendingTest}
-            title={emailConfig.configured ? `Configured sender: ${emailConfig.fromEmail}` : 'Provider not configured'}
-          >
-            <Mail className="w-4 h-4 mr-2" />
-            Test Email Config
-          </Button>
+          {!emailConfig.configured ? (
+            <Button
+              size="sm"
+              onClick={handleConnectGmail}
+              loading={connectingGmail}
+              className="bg-amber-600 hover:bg-amber-500 text-white"
+            >
+              <Mail className="w-4 h-4 mr-2" />
+              Connect Gmail
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSendTestEmail}
+              loading={sendingTest}
+              title={`Authorized sender: ${emailConfig.fromEmail}`}
+            >
+              <Mail className="w-4 h-4 mr-2" />
+              Test Email
+            </Button>
+          )}
 
           <Button
             variant="outline"
@@ -381,12 +426,54 @@ export default function ParticipantsPage() {
         </div>
       </div>
 
-      {/* Provider Status Alert */}
-      {!emailConfig.configured && (
-        <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200 flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 mt-0.5 text-amber-400 shrink-0" />
-          <div className="text-sm">
-            <strong>Resend Transactional Email Not Configured:</strong> The backend requires <code>RESEND_API_KEY</code> and <code>EMAIL_FROM</code> in environment variables to dispatch emails. You can still import participants and create accounts.
+      {/* Gmail Provider Status Alert */}
+      {!emailConfig.configured ? (
+        <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 mt-0.5 text-amber-400 shrink-0" />
+            <div className="text-sm">
+              <strong className="text-amber-300 font-semibold">Gmail API Not Connected:</strong> To dispatch participant credentials, authenticate with the official competition Gmail account. You can still import participants and create accounts.
+            </div>
+          </div>
+          <Button
+            size="sm"
+            onClick={handleConnectGmail}
+            loading={connectingGmail}
+            className="bg-amber-600 hover:bg-amber-500 text-white shrink-0"
+          >
+            <Mail className="w-4 h-4 mr-2" />
+            Connect Gmail
+          </Button>
+        </div>
+      ) : (
+        <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <CheckCircle className="w-5 h-5 mt-0.5 text-emerald-400 shrink-0" />
+            <div className="text-sm">
+              <strong className="text-emerald-300 font-semibold">Gmail Connected:</strong> Ready to dispatch credential emails from <code className="bg-emerald-950/60 px-1.5 py-0.5 rounded text-emerald-300 font-mono text-xs">{emailConfig.fromEmail}</code> via official Gmail API.
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSendTestEmail}
+              loading={sendingTest}
+              className="border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/20"
+            >
+              <Send className="w-3.5 h-3.5 mr-1.5" />
+              Test Email
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleConnectGmail}
+              loading={connectingGmail}
+              className="border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/20 text-xs"
+              title="Switch or reconnect Gmail account"
+            >
+              Reconnect
+            </Button>
           </div>
         </div>
       )}
@@ -589,6 +676,21 @@ export default function ParticipantsPage() {
                   </tbody>
                 </table>
               </div>
+
+              {creatingAccounts && (
+                <div className="space-y-2 py-3 bg-card/40 rounded-lg p-3 border border-primary/20">
+                  <div className="flex justify-between text-xs text-muted-foreground font-mono">
+                    <span className="flex items-center gap-2">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />
+                      Generating secure random passwords and hashing for {previewData.summary.validCount} accounts...
+                    </span>
+                    <span className="text-primary font-bold animate-pulse">Processing batch</span>
+                  </div>
+                  <div className="w-full bg-muted/60 rounded-full h-2.5 overflow-hidden">
+                    <div className="bg-primary h-2.5 rounded-full w-full animate-pulse transition-all" />
+                  </div>
+                </div>
+              )}
 
               <div className="flex justify-end gap-3 pt-2">
                 <Button

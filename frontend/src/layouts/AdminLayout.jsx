@@ -1,9 +1,10 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useSession } from '../context/SessionContext';
 import { useDialog } from '../context/DialogContext';
-import { LayoutDashboard, Flag, Users, Shield, Terminal, LogOut, User, ChevronDown, Tag, UserPlus } from 'lucide-react';
+import { LayoutDashboard, Flag, Users, Shield, Terminal, LogOut, User, ChevronDown, Tag, UserPlus, Mail, CheckCircle } from 'lucide-react';
+import { adminApi } from '../lib/api';
 import { cn } from '../lib/utils';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 const adminItems = [
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
@@ -15,10 +16,50 @@ const adminItems = [
 
 export default function AdminLayout({ children }) {
   const { user, event, logout } = useSession();
-  const { showConfirm } = useDialog();
+  const { showConfirm, showAlert } = useDialog();
   const location = useLocation();
   const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [gmailStatus, setGmailStatus] = useState({ loading: true, connected: false, email: null });
+  const [connectingGmail, setConnectingGmail] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchGmailStatus = async () => {
+      try {
+        const res = await adminApi.gmailStatus();
+        if (mounted) {
+          setGmailStatus({
+            loading: false,
+            connected: Boolean(res.data?.connected),
+            email: res.data?.email || null
+          });
+        }
+      } catch {
+        if (mounted) {
+          setGmailStatus({ loading: false, connected: false, email: null });
+        }
+      }
+    };
+    fetchGmailStatus();
+    return () => { mounted = false; };
+  }, [location.pathname]);
+
+  const handleConnectGmail = async () => {
+    try {
+      setConnectingGmail(true);
+      const res = await adminApi.connectGmail();
+      if (res.data?.url) {
+        window.location.href = res.data.url;
+      } else {
+        window.location.href = adminApi.connectGmailUrl();
+      }
+    } catch {
+      window.location.href = adminApi.connectGmailUrl();
+    } finally {
+      setConnectingGmail(false);
+    }
+  };
 
   const handleLogout = () => {
     setDropdownOpen(false);
@@ -90,6 +131,27 @@ export default function AdminLayout({ children }) {
               Quick Actions
             </span>
             <nav className="flex flex-col gap-1.5">
+              {!gmailStatus.connected ? (
+                <button
+                  onClick={handleConnectGmail}
+                  disabled={connectingGmail}
+                  className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 w-full text-left"
+                  title="Authorize official competition Gmail account"
+                >
+                  <Mail className="w-4 h-4 text-amber-400" />
+                  <span>{connectingGmail ? 'Connecting...' : 'Connect Gmail'}</span>
+                </button>
+              ) : (
+                <Link
+                  to="/admin/participants"
+                  className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                  title={`Gmail Authorized: ${gmailStatus.email}`}
+                >
+                  <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="truncate text-xs">Gmail Connected</span>
+                </Link>
+              )}
+
               <Link
                 to="/home"
                 className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
@@ -134,7 +196,31 @@ export default function AdminLayout({ children }) {
             </div>
           </div>
            
-          <div className="flex items-center gap-8">
+          <div className="flex items-center gap-4">
+            {/* Topbar Gmail Connection Indicator & Action */}
+            {!gmailStatus.loading && (
+              !gmailStatus.connected ? (
+                <button
+                  onClick={handleConnectGmail}
+                  disabled={connectingGmail}
+                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 hover:text-amber-200 text-xs font-mono font-semibold transition-all duration-200 shadow-sm"
+                  title="Link official competition Gmail account to send participant credentials"
+                >
+                  <Mail className="w-4 h-4 text-amber-400" />
+                  <span>{connectingGmail ? 'Connecting...' : 'Connect Gmail'}</span>
+                </button>
+              ) : (
+                <Link
+                  to="/admin/participants"
+                  className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-mono hover:bg-emerald-500/20 transition-colors"
+                  title={`Authorized sender: ${gmailStatus.email} (Click to manage)`}
+                >
+                  <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="truncate max-w-[180px]">{gmailStatus.email}</span>
+                </Link>
+              )
+            )}
+
             {/* Event Info */}
             <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-muted/30 rounded-lg border border-border/30">
               <span className="text-xs text-muted-foreground/70 uppercase tracking-widest font-semibold">Current Event:</span>

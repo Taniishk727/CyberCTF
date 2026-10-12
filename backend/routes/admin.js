@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import { User, Event, Challenge, Submission, UnlockedHint, Category } from '../models/index.js';
 import { authMiddleware, requireAdmin } from '../middleware/auth.js';
 import { invalidateLeaderboardCache } from '../utils/leaderboardCache.js';
-import { getResendClient, getEmailConfig, buildCredentialEmail, sendTestEmail } from '../utils/email.js';
+import { getGmailConfig, sendEmailViaGmail, buildCredentialEmail, sendTestEmail } from '../utils/email.js';
 
 const router = express.Router();
 const { Types } = mongoose;
@@ -1196,17 +1196,17 @@ function isValidStudentId(id) {
   return trimmed.length >= 2 && trimmed.length <= 50;
 }
 
-// GET /api/admin/participants/email-config - Check Resend provider status
-router.get('/participants/email-config', (req, res) => {
-  const config = getEmailConfig();
+// GET /api/admin/participants/email-config - Check Gmail connection status for this admin
+router.get('/participants/email-config', async (req, res) => {
+  const config = await getGmailConfig(req.user._id.toString());
   res.json({
     configured: config.configured,
     fromEmail: config.fromEmail,
-    hasApiKey: config.hasApiKey
+    provider: 'gmail'
   });
 });
 
-// POST /api/admin/participants/test-email - Send a test email to admin
+// POST /api/admin/participants/test-email - Send a test email via Gmail
 router.post('/participants/test-email', async (req, res, next) => {
   try {
     const { email } = req.body;
@@ -1216,7 +1216,7 @@ router.post('/participants/test-email', async (req, res, next) => {
       return res.status(400).json({ message: 'A valid recipient email address is required for test email' });
     }
 
-    const result = await sendTestEmail({ recipientEmail: targetEmail.trim() });
+    const result = await sendTestEmail({ adminId: req.user._id.toString(), recipientEmail: targetEmail.trim() });
     res.json({ message: `Test email sent successfully to ${targetEmail}`, result });
   } catch (error) {
     next(error);
@@ -1552,7 +1552,7 @@ router.get('/participants', async (req, res, next) => {
   }
 });
 
-// POST /api/admin/participants/send-credentials - Send credential emails for a batch
+// POST /api/admin/participants/send-credentials - Send credential emails for a batch via Gmail
 router.post('/participants/send-credentials', async (req, res, next) => {
   try {
     const { batchId, loginUrl } = req.body;
@@ -1563,12 +1563,11 @@ router.post('/participants/send-credentials', async (req, res, next) => {
       });
     }
 
-    const emailConfig = getEmailConfig();
-    const resend = getResendClient();
-
-    if (!emailConfig.configured || !resend) {
+    // Verify Gmail is connected for this admin before starting
+    const gmailConfig = await getGmailConfig(req.user._id.toString());
+    if (!gmailConfig.configured) {
       return res.status(503).json({
-        message: 'Resend email provider is not configured. Please set RESEND_API_KEY and EMAIL_FROM in backend environment.'
+        message: 'Gmail not connected. Connect your Gmail account via the Email Settings page before dispatching credentials.'
       });
     }
 
@@ -1592,8 +1591,11 @@ router.post('/participants/send-credentials', async (req, res, next) => {
       { $set: { 'emailDelivery.status': 'pending' } }
     );
 
-    // Send emails in chunks of 5 with delay to respect provider rate limits (Resend default: 2 req/sec or 10 req/sec)
+    // Send emails in chunks of 5 — Gmail API allows ~250 emails/day for standard accounts,
+    // 600ms delay between chunks keeps us well within quota.
     const CHUNK_SIZE = 5;
+    const adminId = req.user._id.toString();
+
     for (let i = 0; i < items.length; i += CHUNK_SIZE) {
       const chunk = items.slice(i, i + CHUNK_SIZE);
 
@@ -1608,23 +1610,20 @@ router.post('/participants/send-credentials', async (req, res, next) => {
               eventName: batch.eventName
             });
 
-            const sendResult = await resend.emails.send({
-              from: emailConfig.fromEmail,
+            const subject = `🚩 ${batch.eventName || 'FlagHunters CTF'} — Your Account Credentials`;
+            const gmailMessageId = await sendEmailViaGmail({
+              adminId,
               to: item.email,
-              subject: `🚩 ${batch.eventName || 'FlagHunters CTF'} — Your Account Credentials`,
+              subject,
               html,
               text
             });
-
-            if (sendResult.error) {
-              throw new Error(sendResult.error.message || 'Send error from provider');
-            }
 
             await User.findByIdAndUpdate(item.userId, {
               $set: {
                 'emailDelivery.status': 'sent',
                 'emailDelivery.sentAt': new Date(),
-                'emailDelivery.messageId': sendResult.data?.id || '',
+                'emailDelivery.messageId': gmailMessageId || '',
                 'emailDelivery.error': ''
               }
             });
@@ -1634,7 +1633,7 @@ router.post('/participants/send-credentials', async (req, res, next) => {
               studentId: item.studentId,
               email: item.email,
               status: 'sent',
-              messageId: sendResult.data?.id || ''
+              messageId: gmailMessageId || ''
             });
           } catch (err) {
             await User.findByIdAndUpdate(item.userId, {
@@ -1655,7 +1654,7 @@ router.post('/participants/send-credentials', async (req, res, next) => {
         })
       );
 
-      // Brief pause between chunks to stay safely under rate limits
+      // Brief pause between chunks to respect Gmail API rate limits
       if (i + CHUNK_SIZE < items.length) {
         await new Promise(r => setTimeout(r, 600));
       }
@@ -1673,7 +1672,7 @@ router.post('/participants/send-credentials', async (req, res, next) => {
   }
 });
 
-// POST /api/admin/participants/retry-credentials - Securely regenerate temporary password and retry failed deliveries
+// POST /api/admin/participants/retry-credentials - Regenerate temp password and retry failed deliveries via Gmail
 router.post('/participants/retry-credentials', async (req, res, next) => {
   try {
     const { userIds, loginUrl, eventName } = req.body;
@@ -1682,12 +1681,11 @@ router.post('/participants/retry-credentials', async (req, res, next) => {
       return res.status(400).json({ message: 'No participant IDs provided for retry' });
     }
 
-    const emailConfig = getEmailConfig();
-    const resend = getResendClient();
-
-    if (!emailConfig.configured || !resend) {
+    // Verify Gmail is connected for this admin
+    const gmailConfig = await getGmailConfig(req.user._id.toString());
+    if (!gmailConfig.configured) {
       return res.status(503).json({
-        message: 'Resend email provider is not configured. Please set RESEND_API_KEY and EMAIL_FROM in backend environment.'
+        message: 'Gmail not connected. Connect your Gmail account via the Email Settings page before retrying credentials.'
       });
     }
 
@@ -1705,6 +1703,8 @@ router.post('/participants/retry-credentials', async (req, res, next) => {
     };
 
     const CHUNK_SIZE = 5;
+    const adminId = req.user._id.toString();
+
     for (let i = 0; i < users.length; i += CHUNK_SIZE) {
       const chunk = users.slice(i, i + CHUNK_SIZE);
 
@@ -1732,21 +1732,18 @@ router.post('/participants/retry-credentials', async (req, res, next) => {
               eventName: eventName || 'FlagHunters CTF'
             });
 
-            const sendResult = await resend.emails.send({
-              from: emailConfig.fromEmail,
+            const subject = `🚩 ${eventName || 'FlagHunters CTF'} — Your Account Credentials (Updated)`;
+            const gmailMessageId = await sendEmailViaGmail({
+              adminId,
               to: user.email,
-              subject: `🚩 ${eventName || 'FlagHunters CTF'} — Your Account Credentials (Updated)`,
+              subject,
               html,
               text
             });
 
-            if (sendResult.error) {
-              throw new Error(sendResult.error.message || 'Send error from provider');
-            }
-
             user.emailDelivery.status = 'sent';
             user.emailDelivery.sentAt = new Date();
-            user.emailDelivery.messageId = sendResult.data?.id || '';
+            user.emailDelivery.messageId = gmailMessageId || '';
             user.emailDelivery.error = '';
             await user.save();
 
@@ -1755,7 +1752,7 @@ router.post('/participants/retry-credentials', async (req, res, next) => {
               studentId: user.username,
               email: user.email,
               status: 'sent',
-              messageId: sendResult.data?.id || ''
+              messageId: gmailMessageId || ''
             });
           } catch (err) {
             user.emailDelivery.status = 'failed';

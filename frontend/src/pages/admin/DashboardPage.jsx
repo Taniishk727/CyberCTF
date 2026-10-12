@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { adminApi } from '../../lib/api';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input } from '../../components/ui';
-import { Calendar, Users, Flag, Trophy, Plus, Copy, CheckCircle, Trash2, X, Download, MonitorPlay } from 'lucide-react';
+import { Calendar, Users, Flag, Trophy, Plus, Copy, CheckCircle, Trash2, X, Download, MonitorPlay, Mail, AlertTriangle } from 'lucide-react';
 import { formatDate, cn } from '../../lib/utils';
 import { useDialog } from '../../context/DialogContext';
 import CategoryDistributionChart from '../../components/charts/CategoryDistributionChart';
@@ -18,16 +19,48 @@ export default function DashboardPage() {
   const [newEvent, setNewEvent] = useState({ name: '', description: '' });
   const [copiedPin, setCopiedPin] = useState(null);
   const [selectedEventForAnalytics, setSelectedEventForAnalytics] = useState(null);
+  const [gmailStatus, setGmailStatus] = useState({ loading: true, connected: false, email: null });
+  const [connectingGmail, setConnectingGmail] = useState(false);
   const { showAlert, showConfirm } = useDialog();
 
   const fetchDashboard = async () => {
     try {
-      const response = await adminApi.getDashboard();
-      setStats(response.data.stats);
+      const [dashRes, gmailRes] = await Promise.allSettled([
+        adminApi.getDashboard(),
+        adminApi.gmailStatus()
+      ]);
+      if (dashRes.status === 'fulfilled') {
+        setStats(dashRes.value.data.stats || []);
+      }
+      if (gmailRes.status === 'fulfilled') {
+        setGmailStatus({
+          loading: false,
+          connected: Boolean(gmailRes.value.data?.connected),
+          email: gmailRes.value.data?.email || null
+        });
+      } else {
+        setGmailStatus({ loading: false, connected: false, email: null });
+      }
     } catch (error) {
       console.error('Error fetching dashboard:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleConnectGmail = async () => {
+    try {
+      setConnectingGmail(true);
+      const res = await adminApi.connectGmail();
+      if (res.data?.url) {
+        window.location.href = res.data.url;
+      } else {
+        window.location.href = adminApi.connectGmailUrl();
+      }
+    } catch {
+      window.location.href = adminApi.connectGmailUrl();
+    } finally {
+      setConnectingGmail(false);
     }
   };
 
@@ -203,6 +236,75 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Gmail Integration Banner */}
+      {!gmailStatus.loading && (
+        !gmailStatus.connected ? (
+          <Card className="border-amber-500/40 bg-amber-500/10 backdrop-blur-sm">
+            <CardContent className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-xl bg-amber-500/20 text-amber-300">
+                  <Mail className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-foreground flex items-center gap-2">
+                    Gmail Email Integration Not Connected
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-normal">Action Required</span>
+                  </h3>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    Connect the official competition Gmail account to dispatch participant credentials and automated emails.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <Button
+                  onClick={handleConnectGmail}
+                  loading={connectingGmail}
+                  className="bg-amber-600 hover:bg-amber-500 text-white font-semibold"
+                >
+                  <Mail className="w-4 h-4 mr-2" />
+                  Connect Gmail Now
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="border-emerald-500/30 bg-emerald-500/10 backdrop-blur-sm">
+            <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400">
+                  <CheckCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-emerald-200">
+                    Official Gmail Connected: <span className="font-mono text-emerald-300 font-bold">{gmailStatus.email}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Ready to dispatch participant credentials via official Gmail API.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Link to="/admin/participants">
+                  <Button variant="outline" size="sm" className="border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/20 text-xs">
+                    Manage Credentials
+                  </Button>
+                </Link>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleConnectGmail}
+                  loading={connectingGmail}
+                  className="border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/20 text-xs"
+                  title="Switch or reconnect Gmail account"
+                >
+                  Reconnect
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )
+      )}
 
       {/* Events List */}
       <Card>
