@@ -71,27 +71,40 @@ async function buildGmailClient(adminId) {
 // ---------------------------------------------------------------------------
 // encodeRawMessage â€“ encodes a raw MIME message for the Gmail API.
 // ---------------------------------------------------------------------------
+function encodeMimeHeader(value) {
+  const normalized = String(value ?? '').replace(/[\r\n]+/g, ' ').trim();
+  if (/^[\x20-\x7E]*$/.test(normalized)) return normalized;
+  return `=?UTF-8?B?${Buffer.from(normalized, 'utf8').toString('base64')}?=`;
+}
+
+function encodeMimeBody(value) {
+  return Buffer.from(String(value ?? ''), 'utf8')
+    .toString('base64')
+    .replace(/.{1,76}/g, '$&\r\n')
+    .trimEnd();
+}
+
 function encodeRawMessage(from, to, subject, htmlBody, textBody) {
   // Build a simple multipart/alternative MIME message
   const boundary = `----=_Part_${Date.now()}`;
   const mime = [
     `From: ${from}`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeMimeHeader(subject)}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     '',
     `--${boundary}`,
     'Content-Type: text/plain; charset="UTF-8"',
-    'Content-Transfer-Encoding: quoted-printable',
+    'Content-Transfer-Encoding: base64',
     '',
-    textBody,
+    encodeMimeBody(textBody),
     '',
     `--${boundary}`,
     'Content-Type: text/html; charset="UTF-8"',
-    'Content-Transfer-Encoding: quoted-printable',
+    'Content-Transfer-Encoding: base64',
     '',
-    htmlBody,
+    encodeMimeBody(htmlBody),
     '',
     `--${boundary}--`
   ].join('\r\n');
@@ -126,7 +139,7 @@ export async function sendTestEmail({ adminId, recipientEmail }) {
 
   const { gmail, fromEmail } = await buildGmailClient(adminId);
 
-  const subject = 'ðŸš© FlagHunters CTF â€” Test Email';
+  const subject = 'CyberCTF Gmail Delivery Test';
   const html = `
     <div style="font-family: sans-serif; padding: 20px;">
       <h2>FlagHunters Email System Test</h2>
@@ -136,7 +149,7 @@ export async function sendTestEmail({ adminId, recipientEmail }) {
       <p>Timestamp: ${new Date().toISOString()}</p>
     </div>
   `.trim();
-  const text = `FlagHunters Email System Test â€” sent via Gmail API from ${fromEmail} at ${new Date().toISOString()}`;
+  const text = `FlagHunters Email System Test - sent via Gmail API from ${fromEmail} at ${new Date().toISOString()}`;
 
   const raw = encodeRawMessage(fromEmail, recipientEmail, subject, html, text);
   const result = await gmail.users.messages.send({

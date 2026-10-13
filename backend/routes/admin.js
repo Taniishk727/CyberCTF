@@ -465,7 +465,7 @@ router.post('/users', async (req, res, next) => {
         const messageId = await sendEmailViaGmail({
           adminId,
           to: trimmedEmail,
-          subject: `${targetEvent.name} — Your Account Credentials`,
+          subject: 'Flag Hunters User Account Credentials Only',
           html,
           text
         });
@@ -1528,7 +1528,7 @@ router.post('/participants/create', async (req, res, next) => {
         const messageId = await sendEmailViaGmail({
           adminId,
           to: item.email,
-          subject: `${targetEvent.name} — Your Account Credentials`,
+          subject: 'Flag Hunters User Account Credentials Only',
           html,
           text
         });
@@ -1706,7 +1706,7 @@ router.post('/participants/send-credentials', async (req, res, next) => {
               eventName: batch.eventName
             });
 
-            const subject = `🚩 ${batch.eventName || 'FlagHunters CTF'} — Your Account Credentials`;
+            const subject = 'Flag Hunters User Account Credentials Only';
             const gmailMessageId = await sendEmailViaGmail({
               adminId,
               to: item.email,
@@ -1834,7 +1834,7 @@ router.post('/participants/retry-credentials', async (req, res, next) => {
               gamePin: userEvent.gamePin
             });
 
-            const subject = `🚩 ${eventName || 'FlagHunters CTF'} — Your Account Credentials (Updated)`;
+            const subject = 'Flag Hunters User Account Credentials Only';
             const gmailMessageId = await sendEmailViaGmail({
               adminId,
               to: user.email,

@@ -38,7 +38,7 @@ export default function PlayerLayout({ children }) {
   return (
     <div className="min-h-screen flex bg-background text-foreground">
       {/* Fixed Sidebar */}
-      <aside className="w-64 bg-background border-r border-border/50 flex flex-col fixed inset-y-0 left-0 z-50">
+      <aside className="hidden md:flex w-64 bg-background border-r border-border/50 flex-col fixed inset-y-0 left-0 z-50">
         {/* Logo Area */}
         <div className="h-16 flex items-center justify-between px-6 border-b border-border/50">
           <Link to="/home" className="flex items-center gap-2 group">
@@ -122,20 +122,24 @@ export default function PlayerLayout({ children }) {
       </aside>
 
       {/* Main Content Area (offset by sidebar width) */}
-      <div className="flex-1 ml-64 flex flex-col min-h-screen">
+      <div className="flex-1 min-w-0 md:ml-64 flex flex-col min-h-screen">
         {/* Top Header / Context bar */}
-        <header className="h-16 border-b border-border/50 bg-background/95 backdrop-blur-sm sticky top-0 z-40 px-8 flex items-center justify-end">
-           <div className="flex items-center gap-6">
-             <div className="flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground/80">Event:</span>
-                <span className="text-primary font-mono">{event?.name || 'TestCTF'}</span>
-             </div>
-             
-             {/* Live Rank Display */}
-             <UserRankDisplay />
-             
-             {/* User Dropdown Menu */}
-             <div className="relative">
+        <header className="sticky top-0 z-40 border-b border-border/50 bg-background/95 backdrop-blur-sm px-4 sm:px-8">
+          <div className="flex h-16 items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3 sm:gap-6">
+              <div className="flex min-w-0 items-center gap-2 text-xs sm:text-sm">
+                <span className="shrink-0 text-muted-foreground/80">Event:</span>
+                <span className="truncate font-mono text-primary">{event?.name || 'TestCTF'}</span>
+              </div>
+
+              {/* Live Rank Display */}
+              <div className="hidden sm:block">
+                <UserRankDisplay />
+              </div>
+            </div>
+
+            {/* User Dropdown Menu */}
+            <div className="relative shrink-0">
                <button
                  onClick={() => setDropdownOpen(!dropdownOpen)}
                  className="w-8 h-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center text-primary text-xs font-bold font-mono hover:border-primary/50 hover:bg-primary/30 transition-colors"
@@ -181,12 +185,31 @@ export default function PlayerLayout({ children }) {
                    onClick={() => setDropdownOpen(false)}
                  />
                )}
-             </div>
-           </div>
+            </div>
+          </div>
+
+          {/* Compact navigation for phones and tablets */}
+          <nav className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-2 md:hidden" aria-label="Player navigation">
+            {studentItems.map(({ path, label, icon: Icon }) => (
+              <Link
+                key={path}
+                to={path}
+                className={cn(
+                  'flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                  location.pathname === path
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </Link>
+            ))}
+          </nav>
         </header>
 
         {/* Dynamic Page Content */}
-        <main className="flex-1 p-8">
+        <main className="flex-1 min-w-0 p-4 sm:p-8">
           {children}
         </main>
       </div>

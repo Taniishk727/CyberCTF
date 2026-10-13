@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import TeamCard from './TeamCard';
 import TeamModal from './TeamModal';
@@ -8,6 +8,7 @@ const CARD_SCROLL_STEP = 300;
 export default function TeamCarousel({ members }) {
   const scrollerRef = useRef(null);
   const [selectedMember, setSelectedMember] = useState(null);
+  const closeMember = useCallback(() => setSelectedMember(null), []);
   const dragStateRef = useRef({
     active: false,
     startX: 0,
@@ -102,7 +103,7 @@ export default function TeamCarousel({ members }) {
         <ChevronRight className="h-5 w-5" />
       </button>
 
-      <TeamModal member={selectedMember} onClose={() => setSelectedMember(null)} />
+      <TeamModal member={selectedMember} onClose={closeMember} />
     </section>
   );
 }

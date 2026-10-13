@@ -1,5 +1,4 @@
-import { useEffect } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Github, Linkedin, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -7,6 +6,8 @@ export default function TeamModal({ member, onClose }) {
   const [entered, setEntered] = useState(false);
 
   useEffect(() => {
+    if (!member) return undefined;
+
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const frame = window.requestAnimationFrame(() => setEntered(true));
@@ -24,7 +25,7 @@ export default function TeamModal({ member, onClose }) {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', onEsc);
     };
-  }, [onClose]);
+  }, [member, onClose]);
 
   useEffect(() => {
     if (!member) {
@@ -37,7 +38,7 @@ export default function TeamModal({ member, onClose }) {
   return (
     <div
       className={cn(
-        'fixed inset-0 z-[220] bg-black/65 backdrop-blur-md transition-opacity duration-200',
+        'fixed inset-0 z-[220] overflow-y-auto overscroll-contain bg-black/65 backdrop-blur-md transition-opacity duration-200',
         entered ? 'opacity-100' : 'opacity-0'
       )}
       onClick={onClose}
