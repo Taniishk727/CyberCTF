@@ -9,6 +9,15 @@ import { sendTestEmail } from '../utils/email.js';
 
 const router = express.Router();
 
+// OAuth callbacks run on the API host, but the result page belongs to the
+// Vercel frontend. Keep this fallback aligned with the deployed frontend so
+// a missing Render FRONTEND_URL never sends admins to an API 404.
+const DEFAULT_FRONTEND_URL = 'https://cyber-ctf-seven.vercel.app';
+
+function getFrontendBaseUrl() {
+  return (process.env.FRONTEND_URL || DEFAULT_FRONTEND_URL).trim().replace(/\/+$/, '');
+}
+
 // Helper to build OAuth2 client
 function buildOAuthClient() {
   const clientId = process.env.GMAIL_CLIENT_ID?.trim();
@@ -34,7 +43,12 @@ router.get('/oauth/connect', authMiddleware, requireAdmin, async (req, res, next
     const authUrl = oauth2.generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent',
-      scope: ['https://www.googleapis.com/auth/gmail.send'],
+      // gmail.send authorizes sending; userinfo.email lets us identify the
+      // connected account without requesting Gmail read access.
+      scope: [
+        'https://www.googleapis.com/auth/gmail.send',
+        'https://www.googleapis.com/auth/userinfo.email'
+      ],
       state,
     });
 
@@ -52,7 +66,7 @@ router.get('/oauth/connect', authMiddleware, requireAdmin, async (req, res, next
 
 // GET /api/email/oauth/callback – handle Google response
 router.get('/oauth/callback', async (req, res, next) => {
-  const frontendBase = (process.env.FRONTEND_URL || '').replace(/\/+$/, '');
+  const frontendBase = getFrontendBaseUrl();
   const redirectSuccess = `${frontendBase}/admin/participants?gmail=connected`;
   const redirectError = (msg) => `${frontendBase}/admin/participants?gmail=error&error=${encodeURIComponent(msg || 'oauth_failed')}`;
 
@@ -102,11 +116,14 @@ router.get('/oauth/callback', async (req, res, next) => {
       return res.redirect(redirectError('No refresh token provided by Google'));
     }
 
-    // Use access token to fetch user profile (email address)
+    // Read the account email through the userinfo endpoint. Gmail users.getProfile
+    // requires gmail.readonly, which the send-only integration must not request.
     oauth2.setCredentials(tokens);
-    const gmail = google.gmail({ version: 'v1', auth: oauth2 });
-    const profileRes = await gmail.users.getProfile({ userId: 'me' });
-    const emailAddress = profileRes.data.emailAddress;
+    const profileRes = await google.oauth2({ version: 'v2', auth: oauth2 }).userinfo.get();
+    const emailAddress = profileRes.data.email;
+    if (!emailAddress) {
+      return res.redirect(redirectError('Google did not return the connected account email'));
+    }
     if (credential) {
       credential.email = emailAddress;
       await credential.save();

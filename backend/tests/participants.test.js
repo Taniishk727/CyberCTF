@@ -88,6 +88,12 @@ google.gmail = () => ({
   }
 });
 
+google.oauth2 = () => ({
+  userinfo: {
+    get: () => Promise.resolve({ data: { email: 'cybercell@pict.edu' } })
+  }
+});
+
 const { default: app } = await import('../server.js');
 const { default: User } = await import('../models/User.js');
 const { default: Event } = await import('../models/Event.js');
