@@ -19,6 +19,7 @@ export default function UsersPage() {
   const [newUserData, setNewUserData] = useState({
     username: '',
     password: '',
+    generatePassword: false,
     email: '',
     fullName: '',
     eventId: ''
@@ -41,24 +42,47 @@ export default function UsersPage() {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    if (!newUserData.username.trim() || !newUserData.password.trim()) {
-      showAlert('Validation Error', 'Username and Password are required.', 'destructive');
+    const username = newUserData.username.trim();
+    const email = newUserData.email.trim();
+    const eventId = newUserData.eventId || selectedEvent;
+
+    if (!username) {
+      showAlert('Validation Error', 'Username is required.', 'destructive');
+      return;
+    }
+    if (!newUserData.generatePassword && newUserData.password.trim().length < 4) {
+      showAlert('Validation Error', 'Enter a password with at least 4 characters or choose automatic password generation.', 'destructive');
+      return;
+    }
+    if (newUserData.generatePassword && !email) {
+      showAlert('Email Required', 'Enter the user’s email address so the generated password can be delivered securely.', 'destructive');
+      return;
+    }
+    if (email && !eventId) {
+      showAlert('Event Required', 'Assign the user to an event before emailing credentials so the room PIN can be included.', 'destructive');
       return;
     }
 
     try {
       setCreating(true);
-      await adminApi.createUser({
-        username: newUserData.username.trim(),
-        password: newUserData.password.trim(),
-        email: newUserData.email.trim() || undefined,
+      const response = await adminApi.createUser({
+        username,
+        password: newUserData.generatePassword ? undefined : newUserData.password.trim(),
+        generatePassword: newUserData.generatePassword,
+        email: email || undefined,
         fullName: newUserData.fullName.trim() || undefined,
-        eventId: newUserData.eventId || selectedEvent || undefined
+        eventId: eventId || undefined
       });
 
-      showAlert('Success', `User "${newUserData.username.trim()}" created successfully!`, 'success');
+      if (response.data.emailDelivery?.status === 'sent') {
+        showAlert('User Created', `User "${username}" was created and the username, password, and room PIN were emailed successfully.`, 'success');
+      } else if (response.data.emailDelivery?.status === 'failed') {
+        showAlert('User Created — Email Failed', `The account exists, but the credential email could not be sent: ${response.data.emailDelivery.error || 'Unknown delivery error'}.`, 'destructive');
+      } else {
+        showAlert('Success', `User "${username}" created successfully.`, 'success');
+      }
       setIsModalOpen(false);
-      setNewUserData({ username: '', password: '', email: '', fullName: '', eventId: '' });
+      setNewUserData({ username: '', password: '', generatePassword: false, email: '', fullName: '', eventId: '' });
       fetchData();
     } catch (error) {
       showAlert('Error', error.response?.data?.message || 'Failed to create user', 'destructive');
@@ -379,19 +403,34 @@ export default function UsersPage() {
                 />
               </div>
 
-              <div>
-                <label className="text-xs font-medium text-foreground block mb-1">
-                  Password / Passcode *
-                </label>
-                <Input
-                  required
-                  type="password"
-                  placeholder="Minimum 4 characters"
-                  value={newUserData.password}
-                  onChange={(e) => setNewUserData({ ...newUserData, password: e.target.value })}
-                  className="font-mono"
+              <label className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={newUserData.generatePassword}
+                  onChange={(e) => setNewUserData({ ...newUserData, generatePassword: e.target.checked, password: '' })}
+                  className="mt-1 accent-primary"
                 />
-              </div>
+                <span>
+                  <span className="block text-sm font-medium text-foreground">Generate a strong password automatically</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">The password is generated and hashed on the server, never shown to you, and emailed to the user.</span>
+                </span>
+              </label>
+
+              {!newUserData.generatePassword && (
+                <div>
+                  <label className="text-xs font-medium text-foreground block mb-1">
+                    Password / Passcode *
+                  </label>
+                  <Input
+                    required
+                    type="password"
+                    placeholder="Minimum 4 characters"
+                    value={newUserData.password}
+                    onChange={(e) => setNewUserData({ ...newUserData, password: e.target.value })}
+                    className="font-mono"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="text-xs font-medium text-foreground block mb-1">
@@ -406,7 +445,7 @@ export default function UsersPage() {
 
               <div>
                 <label className="text-xs font-medium text-foreground block mb-1">
-                  Email Address (Optional)
+                  Email Address {newUserData.generatePassword ? '*' : '(Optional)'}
                 </label>
                 <Input
                   type="email"
@@ -418,14 +457,14 @@ export default function UsersPage() {
 
               <div>
                 <label className="text-xs font-medium text-foreground block mb-1">
-                  Assign to Event
+                  Assign to Event {newUserData.email.trim() ? '*' : ''}
                 </label>
                 <select
                   value={newUserData.eventId || selectedEvent}
                   onChange={(e) => setNewUserData({ ...newUserData, eventId: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg border border-border bg-input text-foreground text-sm"
                 >
-                  <option value="">No Event (Join with Game PIN later)</option>
+                  <option value="">{newUserData.email.trim() ? 'Select an event to email its room PIN' : 'No Event (Join with Game PIN later)'}</option>
                   {events.map((event) => (
                     <option key={event._id} value={event._id}>{event.name} (PIN: {event.gamePin})</option>
                   ))}
@@ -443,7 +482,7 @@ export default function UsersPage() {
                 <Button
                   type="submit"
                   loading={creating}
-                  disabled={!newUserData.username.trim() || !newUserData.password.trim()}
+                  disabled={!newUserData.username.trim() || (!newUserData.generatePassword && !newUserData.password.trim())}
                 >
                   Create User
                 </Button>

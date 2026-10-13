@@ -379,9 +379,8 @@ router.get('/users', async (req, res, next) => {
 // POST /api/admin/users - Manually create a user
 router.post('/users', async (req, res, next) => {
   try {
-    const { username, password, email, fullName, eventId } = req.body;
+    const { username, password, email, fullName, eventId, generatePassword = false } = req.body;
     const trimmedUsername = typeof username === 'string' ? username.trim() : '';
-    const trimmedPassword = typeof password === 'string' ? password.trim() : '';
     const trimmedEmail = typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : undefined;
     const trimmedFullName = typeof fullName === 'string' ? fullName.trim() : '';
 
@@ -389,8 +388,16 @@ router.post('/users', async (req, res, next) => {
       return res.status(400).json({ message: 'Username is required' });
     }
 
-    if (!trimmedPassword || trimmedPassword.length < 4) {
+    if (!generatePassword && (typeof password !== 'string' || password.trim().length < 4)) {
       return res.status(400).json({ message: 'Password is required (minimum 4 characters)' });
+    }
+
+    if (trimmedEmail && !isValidEmail(trimmedEmail)) {
+      return res.status(400).json({ message: 'A valid email address is required' });
+    }
+
+    if (generatePassword && !trimmedEmail) {
+      return res.status(400).json({ message: 'An email address is required when generating a password automatically' });
     }
 
     // Check if user already exists
@@ -408,19 +415,33 @@ router.post('/users', async (req, res, next) => {
       return res.status(400).json({ message: 'Email is already registered to another account' });
     }
 
-    let targetEventId = null;
+    let targetEvent = null;
     if (eventId) {
       const eventObjId = toObjectId(eventId);
       if (eventObjId) {
-        const eventExists = await Event.findById(eventObjId);
-        if (eventExists) {
-          targetEventId = eventExists._id;
-        }
+        targetEvent = await Event.findById(eventObjId).select('_id name gamePin');
+      }
+      if (!targetEvent) {
+        return res.status(400).json({ message: 'Selected event was not found' });
       }
     }
 
+    if (trimmedEmail && !targetEvent) {
+      return res.status(400).json({ message: 'Assign this user to an event before emailing credentials so the room PIN can be included' });
+    }
+
+    const adminId = req.user._id.toString();
+    if (trimmedEmail) {
+      const gmailConfig = await getGmailConfig(adminId);
+      if (!gmailConfig.configured) {
+        return res.status(503).json({ message: 'Connect the official Gmail account before creating a user with email delivery' });
+      }
+    }
+
+    const targetEventId = targetEvent?._id || null;
+    const plainPassword = generatePassword ? generateSecureTemporaryPassword() : password.trim();
     const salt = await bcryptjs.genSalt(10);
-    const hashedPassword = await bcryptjs.hash(trimmedPassword, salt);
+    const hashedPassword = await bcryptjs.hash(plainPassword, salt);
 
     const newUser = await User.create({
       username: trimmedUsername,
@@ -429,14 +450,55 @@ router.post('/users', async (req, res, next) => {
       fullName: trimmedFullName,
       role: 'player',
       eventId: targetEventId,
-      score: PLAYER_STARTING_SCORE
+      score: PLAYER_STARTING_SCORE,
+      emailDelivery: trimmedEmail ? { status: 'pending' } : undefined
     });
+
+    let emailDelivery = { status: 'not_sent' };
+    if (trimmedEmail) {
+      try {
+        const { html, text } = buildCredentialEmail({
+          studentId: newUser.username,
+          temporaryPassword: plainPassword,
+          gamePin: targetEvent.gamePin
+        });
+        const messageId = await sendEmailViaGmail({
+          adminId,
+          to: trimmedEmail,
+          subject: `${targetEvent.name} — Your Account Credentials`,
+          html,
+          text
+        });
+        emailDelivery = { status: 'sent', messageId: messageId || '' };
+        await User.findByIdAndUpdate(newUser._id, {
+          $set: {
+            'emailDelivery.status': 'sent',
+            'emailDelivery.sentAt': new Date(),
+            'emailDelivery.messageId': messageId || '',
+            'emailDelivery.error': ''
+          }
+        });
+      } catch (error) {
+        emailDelivery = { status: 'failed', error: error.message || 'Email delivery failed' };
+        await User.findByIdAndUpdate(newUser._id, {
+          $set: {
+            'emailDelivery.status': 'failed',
+            'emailDelivery.error': emailDelivery.error
+          }
+        });
+      }
+    }
 
     invalidateLeaderboardCache(targetEventId);
 
     res.status(201).json({
-      message: 'User created successfully',
-      user: sanitizeUser(newUser)
+      message: emailDelivery.status === 'sent'
+        ? 'User created and credentials emailed successfully'
+        : emailDelivery.status === 'failed'
+          ? 'User created, but the credential email could not be sent'
+          : 'User created successfully',
+      user: sanitizeUser(newUser),
+      emailDelivery
     });
   } catch (error) {
     next(error);
@@ -1172,13 +1234,12 @@ function cleanExpiredBatches() {
   }
 }
 
-// Generate a cryptographically secure random temporary password (minimum 10 chars, mixed alphanumeric)
+// Generate a cryptographically secure 16-character temporary password.
 function generateSecureTemporaryPassword() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
   let pwd = '';
-  const bytes = crypto.randomBytes(12);
-  for (let i = 0; i < 12; i++) {
-    pwd += chars[bytes[i] % chars.length];
+  for (let i = 0; i < 16; i++) {
+    pwd += chars[crypto.randomInt(0, chars.length)];
   }
   return pwd;
 }
