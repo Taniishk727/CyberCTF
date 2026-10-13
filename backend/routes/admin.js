@@ -7,6 +7,7 @@ import { User, Event, Challenge, Submission, UnlockedHint, Category } from '../m
 import { authMiddleware, requireAdmin } from '../middleware/auth.js';
 import { invalidateLeaderboardCache } from '../utils/leaderboardCache.js';
 import { getGmailConfig, sendEmailViaGmail, buildCredentialEmail, sendTestEmail } from '../utils/email.js';
+import { ensureDefaultCategories } from '../utils/defaultCategories.js';
 
 const router = express.Router();
 const { Types } = mongoose;
@@ -1116,6 +1117,10 @@ router.get('/categories', async (req, res, next) => {
   try {
     const { eventId } = req.query;
     const query = eventId ? { eventId } : {};
+
+    if (eventId) {
+      await ensureDefaultCategories(eventId);
+    }
 
     const categories = await Category.find(query)
       .populate('eventId', 'name')

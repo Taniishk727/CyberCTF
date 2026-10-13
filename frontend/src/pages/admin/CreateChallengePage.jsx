@@ -108,19 +108,25 @@ export default function CreateChallengePage() {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (!import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || !import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET) {
-      showAlert('Configuration Error', "Cloudinary credentials are not set in the .env file.", 'destructive');
+    const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME?.trim();
+    const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET?.trim();
+    if (!cloudName || !uploadPreset || /^(your_|placeholder)/i.test(cloudName) || /^(your_|placeholder)/i.test(uploadPreset)) {
+      showAlert(
+        'Cloudinary Configuration Required',
+        'Set VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET to real values in the frontend deployment environment. The upload preset must allow unsigned uploads, then rebuild and redeploy the frontend.',
+        'destructive'
+      );
       return;
     }
 
     setUploading(true);
     const uploadData = new FormData();
     uploadData.append('file', file);
-    uploadData.append('upload_preset', import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+    uploadData.append('upload_preset', uploadPreset);
     
     try {
       const res = await axios.post(
-        `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/upload`,
+        `https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/upload`,
         uploadData
       );
       
@@ -129,7 +135,15 @@ export default function CreateChallengePage() {
         attachments: [...prev.attachments, { type: 'file', name: file.name, url: res.data.secure_url }]
       }));
     } catch (error) {
-      showAlert('Upload Failed', error.response?.data?.error?.message || error.message, 'destructive');
+      const providerMessage = error.response?.data?.error?.message || error.message;
+      const isCredentialError = /invalid api key|invalid signature|upload preset/i.test(providerMessage);
+      showAlert(
+        'Upload Failed',
+        isCredentialError
+          ? `${providerMessage}. Check the Cloudinary cloud name and unsigned upload preset in the frontend deployment settings, then rebuild and redeploy the frontend.`
+          : providerMessage,
+        'destructive'
+      );
     } finally {
       setUploading(false);
     }

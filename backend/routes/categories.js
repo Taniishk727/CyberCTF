@@ -1,6 +1,7 @@
 import express from 'express';
 import { Category } from '../models/index.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { ensureDefaultCategories } from '../utils/defaultCategories.js';
 
 const router = express.Router();
 
@@ -21,6 +22,7 @@ router.get('/', authMiddleware, async (req, res, next) => {
       return res.status(400).json({ message: 'Event ID is required' });
     }
 
+    await ensureDefaultCategories(eventId);
     const categories = await Category.find({ eventId }).sort({ name: 1 });
 
     res.json({ categories });
