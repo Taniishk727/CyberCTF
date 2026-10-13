@@ -1365,20 +1365,24 @@ router.post('/participants/create', async (req, res, next) => {
       return res.status(400).json({ message: 'No participants provided for creation' });
     }
 
-    let targetEventId = null;
-    let targetEventName = 'FlagHunters CTF';
-    if (eventId) {
-      const eventObjId = toObjectId(eventId);
-      if (eventObjId) {
-        const foundEvent = await Event.findById(eventObjId);
-        if (foundEvent) {
-          targetEventId = foundEvent._id;
-          targetEventName = foundEvent.name;
-        }
-      }
+    const eventObjId = toObjectId(eventId);
+    if (!eventObjId) {
+      return res.status(400).json({ message: 'A valid event is required to create participants' });
+    }
+    const targetEvent = await Event.findById(eventObjId).select('_id name gamePin');
+    if (!targetEvent) {
+      return res.status(404).json({ message: 'Event not found' });
     }
 
-    cleanExpiredBatches();
+    const adminId = req.user._id.toString();
+    const gmailConfig = await getGmailConfig(adminId);
+    if (!gmailConfig.configured) {
+      return res.status(503).json({
+        message: 'Connect the official Gmail account before creating participants so their credentials can be emailed immediately.'
+      });
+    }
+
+    const targetEventId = targetEvent._id;
 
     const createdUsers = [];
     const skippedUsers = [];
@@ -1419,7 +1423,7 @@ router.post('/participants/create', async (req, res, next) => {
           eventId: targetEventId,
           score: PLAYER_STARTING_SCORE,
           emailDelivery: {
-            status: 'not_sent',
+            status: 'pending',
             sentAt: null,
             error: '',
             messageId: ''
@@ -1437,11 +1441,11 @@ router.post('/participants/create', async (req, res, next) => {
 
         // Store temporarily in memory batch for immediate or delayed credential sending
         deliveryBatch.push({
-          userId: newUser._id.toString(),
           studentId: newUser.username,
           fullName: newUser.fullName,
           email: newUser.email,
-          temporaryPassword: tempPassword
+          temporaryPassword: tempPassword,
+          userId: newUser._id.toString()
         });
       } catch (err) {
         if (err.code === 11000) {
@@ -1452,25 +1456,56 @@ router.post('/participants/create', async (req, res, next) => {
       }
     }
 
-    let batchId = null;
-    if (deliveryBatch.length > 0) {
-      batchId = crypto.randomUUID();
-      pendingCredentialBatches.set(batchId, {
-        batchId,
-        createdAt: Date.now(),
-        eventId: targetEventId ? targetEventId.toString() : null,
-        eventName: targetEventName,
-        items: deliveryBatch
-      });
+    const delivery = { sent: 0, failed: 0, details: [] };
+    for (const item of deliveryBatch) {
+      try {
+        const { html, text } = buildCredentialEmail({
+          studentId: item.studentId,
+          temporaryPassword: item.temporaryPassword,
+          gamePin: targetEvent.gamePin
+        });
+        const messageId = await sendEmailViaGmail({
+          adminId,
+          to: item.email,
+          subject: `${targetEvent.name} — Your Account Credentials`,
+          html,
+          text
+        });
+        await User.findByIdAndUpdate(item.userId, {
+          $set: {
+            'emailDelivery.status': 'sent',
+            'emailDelivery.sentAt': new Date(),
+            'emailDelivery.messageId': messageId || '',
+            'emailDelivery.error': ''
+          }
+        });
+        const createdUser = createdUsers.find(user => user.id.toString() === item.userId);
+        if (createdUser) createdUser.emailDelivery = { status: 'sent', messageId: messageId || '' };
+        delivery.sent++;
+        delivery.details.push({ username: item.studentId, email: item.email, status: 'sent' });
+      } catch (error) {
+        await User.findByIdAndUpdate(item.userId, {
+          $set: {
+            'emailDelivery.status': 'failed',
+            'emailDelivery.error': error.message || 'Delivery failed'
+          }
+        });
+        const createdUser = createdUsers.find(user => user.id.toString() === item.userId);
+        if (createdUser) createdUser.emailDelivery = { status: 'failed', error: error.message || 'Delivery failed' };
+        delivery.failed++;
+        delivery.details.push({ username: item.studentId, email: item.email, status: 'failed', error: error.message || 'Delivery failed' });
+      }
     }
 
     res.status(201).json({
-      message: `Created ${createdUsers.length} participant account(s).`,
+      message: `Created ${createdUsers.length} participant account(s); ${delivery.sent} credential email(s) sent, ${delivery.failed} failed.`,
       summary: {
         createdCount: createdUsers.length,
-        skippedCount: skippedUsers.length
+        skippedCount: skippedUsers.length,
+        emailsSent: delivery.sent,
+        emailsFailed: delivery.failed
       },
-      batchId,
+      delivery,
       createdUsers,
       skippedUsers
     });
@@ -1715,7 +1750,15 @@ router.post('/participants/retry-credentials', async (req, res, next) => {
               throw new Error('User does not have a valid email address');
             }
 
-            // Generate fresh secure temporary password and update hash
+            const userEvent = user.eventId
+              ? await Event.findById(user.eventId).select('gamePin').lean()
+              : null;
+            if (!userEvent?.gamePin) {
+              throw new Error('Event room PIN is unavailable for this participant');
+            }
+
+            // Generate a fresh temporary password only after confirming the
+            // event room credential is available for the delivery.
             const tempPassword = generateSecureTemporaryPassword();
             const salt = await bcryptjs.genSalt(10);
             const hashedPassword = await bcryptjs.hash(tempPassword, salt);
@@ -1726,10 +1769,8 @@ router.post('/participants/retry-credentials', async (req, res, next) => {
 
             const { html, text } = buildCredentialEmail({
               studentId: user.username,
-              fullName: user.fullName,
               temporaryPassword: tempPassword,
-              loginUrl,
-              eventName: eventName || 'FlagHunters CTF'
+              gamePin: userEvent.gamePin
             });
 
             const subject = `🚩 ${eventName || 'FlagHunters CTF'} — Your Account Credentials (Updated)`;

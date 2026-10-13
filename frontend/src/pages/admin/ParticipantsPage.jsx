@@ -35,8 +35,6 @@ export default function ParticipantsPage() {
   const [creatingAccounts, setCreatingAccounts] = useState(false);
 
   // Active Pending Batch for sending credentials
-  const [activeBatch, setActiveBatch] = useState(null);
-  const [sendingCredentials, setSendingCredentials] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
   const [retryingFailed, setRetryingFailed] = useState(false);
   const [connectingGmail, setConnectingGmail] = useState(false);
@@ -189,6 +187,11 @@ export default function ParticipantsPage() {
   };
 
   const handleGeneratePreview = async () => {
+    if (!selectedEventId) {
+      showAlert('Event Required', 'Select the event these participants should join before previewing the import.', 'destructive');
+      return;
+    }
+
     if (!columnMapping.studentId || !columnMapping.email) {
       showAlert('Mapping Required', 'Please map at least the Student ID and Email columns.', 'destructive');
       return;
@@ -218,6 +221,11 @@ export default function ParticipantsPage() {
   const handleConfirmAccountCreation = async () => {
     if (!previewData || !previewData.rows) return;
 
+    if (!emailConfig.configured) {
+      showAlert('Gmail Not Connected', 'Connect the official Gmail account before creating participants so credentials can be emailed immediately.', 'destructive');
+      return;
+    }
+
     const validRows = previewData.rows.filter(r => r.isValid);
     if (validRows.length === 0) {
       showAlert('No Valid Rows', 'There are no valid new participant accounts to create.', 'destructive');
@@ -226,7 +234,7 @@ export default function ParticipantsPage() {
 
     showConfirm({
       title: 'Confirm Account Creation',
-      message: `Create ${validRows.length} new participant account(s)? Secure temporary passwords will be generated and hashed immediately.`,
+      message: `Create ${validRows.length} new participant account(s)? Secure passwords will be generated and each participant will be emailed their username, password, and event room PIN immediately.`,
       confirmText: 'Create Accounts',
       variant: 'default',
       onConfirm: async () => {
@@ -241,13 +249,19 @@ export default function ParticipantsPage() {
             selectedEventId
           );
 
-          showAlert('Success', `Successfully created ${res.data.summary.createdCount} participant accounts!`, 'success');
-
-          if (res.data.batchId && res.data.createdUsers?.length > 0) {
-            setActiveBatch({
-              batchId: res.data.batchId,
-              count: res.data.createdUsers.length
-            });
+          const { createdCount, emailsSent, emailsFailed } = res.data.summary;
+          if (emailsFailed > 0) {
+            showAlert(
+              'Accounts Created — Email Delivery Issues',
+              `${createdCount} account(s) created. ${emailsSent} credential email(s) sent; ${emailsFailed} failed. Check participant delivery status and retry failed emails.`,
+              'destructive'
+            );
+          } else {
+            showAlert(
+              'Success',
+              `${createdCount} account(s) created and ${emailsSent} credential email(s) sent with the username, password, and room PIN.`,
+              'success'
+            );
           }
 
           // Reset import UI and reload table
@@ -278,35 +292,6 @@ export default function ParticipantsPage() {
     } finally {
       setConnectingGmail(false);
     }
-  };
-
-  const handleSendCredentials = async () => {
-    if (!activeBatch) return;
-
-    if (!emailConfig.configured) {
-      showAlert('Gmail Not Connected', 'Please connect your official Gmail account first before dispatching credentials.', 'destructive');
-      return;
-    }
-
-    showConfirm({
-      title: 'Send Credential Emails',
-      message: `Send individual credential emails to ${activeBatch.count} newly registered participant(s) via official Gmail (${emailConfig.fromEmail || 'Gmail'})?`,
-      confirmText: 'Dispatch Emails',
-      variant: 'default',
-      onConfirm: async () => {
-        try {
-          setSendingCredentials(true);
-          const res = await adminApi.sendCredentials(activeBatch.batchId, window.location.origin);
-          showAlert('Batch Complete', res.data.message, 'success');
-          setActiveBatch(null);
-          loadParticipants();
-        } catch (err) {
-          showAlert('Delivery Error', err.response?.data?.message || 'Failed to dispatch emails via Gmail', 'destructive');
-        } finally {
-          setSendingCredentials(false);
-        }
-      }
-    });
   };
 
   const handleSendTestEmail = async () => {
@@ -432,7 +417,7 @@ export default function ParticipantsPage() {
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 mt-0.5 text-amber-400 shrink-0" />
             <div className="text-sm">
-              <strong className="text-amber-300 font-semibold">Gmail API Not Connected:</strong> To dispatch participant credentials, authenticate with the official competition Gmail account. You can still import participants and create accounts.
+              <strong className="text-amber-300 font-semibold">Gmail API Not Connected:</strong> Connect the official competition Gmail account before creating participants. Credential emails are sent immediately when accounts are created.
             </div>
           </div>
           <Button
@@ -450,7 +435,7 @@ export default function ParticipantsPage() {
           <div className="flex items-start gap-3">
             <CheckCircle className="w-5 h-5 mt-0.5 text-emerald-400 shrink-0" />
             <div className="text-sm">
-              <strong className="text-emerald-300 font-semibold">Gmail Connected:</strong> Ready to dispatch credential emails from <code className="bg-emerald-950/60 px-1.5 py-0.5 rounded text-emerald-300 font-mono text-xs">{emailConfig.fromEmail}</code> via official Gmail API.
+              <strong className="text-emerald-300 font-semibold">Gmail Connected:</strong> New participants will receive credential emails immediately from <code className="bg-emerald-950/60 px-1.5 py-0.5 rounded text-emerald-300 font-mono text-xs">{emailConfig.fromEmail}</code> via the official Gmail API.
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -476,43 +461,6 @@ export default function ParticipantsPage() {
             </Button>
           </div>
         </div>
-      )}
-
-      {/* Active Ready-to-send Batch Banner */}
-      {activeBatch && (
-        <Card className="border-primary/40 bg-primary/10">
-          <CardContent className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-primary/20 rounded-xl text-primary">
-                <Send className="w-6 h-6 animate-pulse" />
-              </div>
-              <div>
-                <h3 className="font-bold text-foreground">Credentials Ready for Dispatch</h3>
-                <p className="text-sm text-muted-foreground">
-                  <strong>{activeBatch.count}</strong> newly created participant account(s) have pending credentials.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setActiveBatch(null)}
-              >
-                Dismiss Batch
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleSendCredentials}
-                loading={sendingCredentials}
-                disabled={!emailConfig.configured}
-              >
-                <Mail className="w-4 h-4 mr-2" />
-                Dispatch Credentials Now
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
       )}
 
       {/* Step 1: Upload & Map CSV */}

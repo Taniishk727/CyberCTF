@@ -148,12 +148,12 @@ export async function sendTestEmail({ adminId, recipientEmail }) {
 }
 
 // ---------------------------------------------------------------------------
-// buildCredentialEmail â€“ generates HTML and plain-text credential email bodies.
-// Unchanged from previous implementation â€” provider-agnostic.
+// buildCredentialEmail generates HTML and plain-text participant credentials.
 // ---------------------------------------------------------------------------
-export function buildCredentialEmail({ studentId, temporaryPassword }) {
+export function buildCredentialEmail({ studentId, temporaryPassword, gamePin }) {
   const username = escapeHtml(studentId);
   const password = escapeHtml(temporaryPassword);
+  const roomCredential = escapeHtml(gamePin);
 
   const html = `
 <!DOCTYPE html>
@@ -165,11 +165,12 @@ export function buildCredentialEmail({ studentId, temporaryPassword }) {
 <body>
   <p><strong>Username:</strong> <code>${username}</code></p>
   <p><strong>Password:</strong> <code>${password}</code></p>
+  <p><strong>Room PIN:</strong> <code>${roomCredential}</code></p>
 </body>
 </html>
   `.trim();
 
-  const text = `Username: ${studentId}\nPassword: ${temporaryPassword}`;
+  const text = `Username: ${studentId}\nPassword: ${temporaryPassword}\nRoom PIN: ${gamePin}`;
   return { html, text };
 }
 
