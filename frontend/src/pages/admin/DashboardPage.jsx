@@ -387,12 +387,12 @@ export default function DashboardPage() {
                   </div>
 
                   {/* Actions Footer */}
-                  <div className="mt-auto pt-4 border-t border-border/50 flex gap-2">
+                  <div className="mt-auto pt-4 border-t border-border/50 grid grid-cols-2 gap-2">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => handleExportLeaderboard(event.id, event.name)}
-                      className="whitespace-nowrap px-2"
+                      className="w-full min-w-0 justify-center px-2"
                       title="Download leaderboard as PDF"
                     >
                       <Download className="w-4 h-4 mr-1" />
@@ -402,7 +402,7 @@ export default function DashboardPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => window.open(`/admin/stream?eventId=${event.id}`, '_blank')}
-                      className="whitespace-nowrap px-2"
+                      className="w-full min-w-0 justify-center px-2"
                       title="Open Streamer Mode Broadcast"
                     >
                       <MonitorPlay className="w-4 h-4 mr-1" />
@@ -411,7 +411,7 @@ export default function DashboardPage() {
                     <Button
                       variant={event.isActive ? "outline" : "default"}
                       size="sm"
-                      className={cn("flex-1 px-1 transition-all", !event.isActive && "bg-primary text-background")}
+                      className={cn("col-span-2 w-full min-w-0 justify-center px-2 transition-all", !event.isActive && "bg-primary text-background")}
                       onClick={() => handleToggleActive(event.id, event.isActive)}
                     >
                       {event.isActive ? 'Deactivate' : 'Activate'}

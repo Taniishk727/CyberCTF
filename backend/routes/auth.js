@@ -110,7 +110,8 @@ router.post('/join', joinLimiter, async (req, res, next) => {
           email: player.email,
           role: player.role,
           score: player.score,
-          eventId: player.eventId
+          eventId: player.eventId,
+          createdAt: player.createdAt
         },
         event: {
           id: event._id,
@@ -152,7 +153,8 @@ router.post('/join', joinLimiter, async (req, res, next) => {
         username: player.username,
         role: player.role,
         score: player.score,
-        eventId: player.eventId
+        eventId: player.eventId,
+        createdAt: player.createdAt
       },
       event: {
         id: event._id,
@@ -240,7 +242,8 @@ router.get('/me', authMiddleware, async (req, res, next) => {
         email: user.email,
         role: user.role,
         score: user.score,
-        eventId: user.eventId
+        eventId: user.eventId,
+        createdAt: user.createdAt
       },
       event: eventData
     });

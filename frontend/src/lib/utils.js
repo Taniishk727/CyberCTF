@@ -42,7 +42,12 @@ export function getDifficultyClass(difficulty) {
 }
 
 export function formatDate(date) {
-  return new Date(date).toLocaleDateString('en-US', {
+  if (date === null || date === undefined || date === '') return 'Date unavailable';
+
+  const parsedDate = new Date(date);
+  if (Number.isNaN(parsedDate.getTime())) return 'Date unavailable';
+
+  return parsedDate.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
