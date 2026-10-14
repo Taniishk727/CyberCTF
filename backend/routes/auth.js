@@ -34,7 +34,7 @@ router.post('/join', joinLimiter, async (req, res, next) => {
     const playerSecret = typeof (password || passcode) === 'string' ? (password || passcode).trim() : '';
 
     if (!trimmedUsername || !normalizedPin) {
-      return res.status(400).json({ message: 'Username and game PIN are required' });
+      return res.status(400).json({ message: 'Username and Room PIN are required' });
     }
 
     // Require passcode to prevent account hijacking
@@ -48,7 +48,7 @@ router.post('/join', joinLimiter, async (req, res, next) => {
       .lean();
     
     if (!event) {
-      return res.status(404).json({ message: 'Invalid game PIN or event not active' });
+      return res.status(404).json({ message: 'Invalid Room PIN or event not active' });
     }
 
     // 1. Check if user already exists in this event
@@ -258,13 +258,13 @@ router.post('/validate-pin', async (req, res, next) => {
     const { gamePin } = req.body;
 
     if (!gamePin) {
-      return res.status(400).json({ message: 'Game PIN is required' });
+      return res.status(400).json({ message: 'Room PIN is required' });
     }
 
     const event = await Event.findOne({ gamePin, isActive: true });
 
     if (!event) {
-      return res.status(404).json({ valid: false, message: 'Invalid game PIN' });
+      return res.status(404).json({ valid: false, message: 'Invalid Room PIN' });
     }
 
     res.json({

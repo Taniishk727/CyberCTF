@@ -64,7 +64,7 @@ export default function JoinPage() {
               Join CTF Event
             </CardTitle>
             <CardDescription>
-              Enter Game PIN, Username, and Passcode to join or resume
+              Enter Room PIN, Username, and Passcode to join or resume
             </CardDescription>
           </CardHeader>
 
@@ -72,12 +72,12 @@ export default function JoinPage() {
             <form onSubmit={handleJoin} className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
                 <label htmlFor="gamePin" className="text-sm font-medium text-foreground">
-                  Game PIN
+                  Room PIN
                 </label>
                 <Input
                   id="gamePin"
                   type="text"
-                  placeholder="Enter 6-character PIN"
+                  placeholder="Enter 6-character Room PIN"
                   value={gamePin}
                   onChange={(e) => setGamePin(e.target.value.replace(/[^A-Z0-9]/g, '').slice(0, 6))}
                   onInput={(e) => { e.target.value = e.target.value.toUpperCase(); }}
