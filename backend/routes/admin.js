@@ -30,6 +30,77 @@ function sanitizeUser(userDoc) {
 // All routes require admin auth
 router.use(authMiddleware, requireAdmin);
 
+// POST /api/admin/uploads - Upload a challenge attachment using server-side Cloudinary credentials
+router.post('/uploads', async (req, res, next) => {
+  try {
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME?.trim();
+    const apiKey = process.env.CLOUDINARY_API_KEY?.trim();
+    const apiSecret = process.env.CLOUDINARY_API_SECRET?.trim();
+
+    if (!cloudName || !apiKey || !apiSecret) {
+      return res.status(503).json({
+        message: 'Challenge uploads are not configured. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET on the backend.'
+      });
+    }
+
+    const { fileData, fileName, contentType } = req.body || {};
+    const match = typeof fileData === 'string'
+      ? fileData.match(/^data:([^;,]+);base64,([A-Za-z0-9+/]+={0,2})$/)
+      : null;
+
+    if (!match) {
+      return res.status(400).json({ message: 'A valid base64-encoded attachment is required.' });
+    }
+
+    const mimeType = match[1];
+    if (contentType && contentType !== mimeType) {
+      return res.status(400).json({ message: 'The attachment content type does not match its data.' });
+    }
+
+    const fileBuffer = Buffer.from(match[2], 'base64');
+    const maxUploadBytes = 7 * 1024 * 1024;
+    if (!fileBuffer.length || fileBuffer.length > maxUploadBytes) {
+      return res.status(413).json({ message: 'Attachments must be smaller than 7 MB.' });
+    }
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const folder = 'cyberctf/challenge-attachments';
+    const signatureParams = `folder=${folder}&timestamp=${timestamp}`;
+    const signature = crypto
+      .createHash('sha1')
+      .update(`${signatureParams}${apiSecret}`)
+      .digest('hex');
+    const form = new FormData();
+    form.append('file', new Blob([fileBuffer], { type: mimeType }), fileName || 'attachment');
+    form.append('api_key', apiKey);
+    form.append('timestamp', String(timestamp));
+    form.append('folder', folder);
+    form.append('signature', signature);
+
+    const cloudinaryResponse = await fetch(
+      `https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/auto/upload`,
+      { method: 'POST', body: form }
+    );
+    const uploadResult = await cloudinaryResponse.json();
+
+    if (!cloudinaryResponse.ok) {
+      console.error('[Cloudinary] Challenge attachment upload failed:', uploadResult.error?.message || cloudinaryResponse.statusText);
+      return res.status(502).json({
+        message: uploadResult.error?.message || 'Cloudinary rejected the attachment upload.'
+      });
+    }
+
+    return res.status(201).json({
+      secureUrl: uploadResult.secure_url,
+      publicId: uploadResult.public_id,
+      fileName: uploadResult.original_filename || fileName || 'attachment',
+      resourceType: uploadResult.resource_type
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ============ DASHBOARD ============
 
 // GET /api/admin/dashboard - Get dashboard stats

@@ -143,6 +143,7 @@ export const adminApi = {
   // Challenges
   getChallenges: (eventId) => api.get('/admin/challenges', { params: { eventId } }),
   createChallenge: (data) => api.post('/admin/challenges', data),
+  uploadChallengeAttachment: (data) => api.post('/admin/uploads', data),
   updateChallenge: (id, data) => api.put(`/admin/challenges/${id}`, data),
   deleteChallenge: (id) => api.delete(`/admin/challenges/${id}`),
   

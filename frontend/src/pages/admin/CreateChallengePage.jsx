@@ -4,7 +4,6 @@ import { adminApi } from '../../lib/api';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input } from '../../components/ui';
 import { ArrowLeft, Plus, X, UploadCloud, Terminal, Flag, Layout } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import axios from 'axios';
 import { useDialog } from '../../context/DialogContext';
 
 const difficulties = ['Easy', 'Medium', 'Hard'];
@@ -105,47 +104,39 @@ export default function CreateChallengePage() {
   };
 
   const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
+    const input = e.target;
+    const file = input.files[0];
     if (!file) return;
 
-    const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME?.trim();
-    const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET?.trim();
-    if (!cloudName || !uploadPreset || /^(your_|placeholder)/i.test(cloudName) || /^(your_|placeholder)/i.test(uploadPreset)) {
-      showAlert(
-        'Cloudinary Configuration Required',
-        'Set VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET to real values in the frontend deployment environment. The upload preset must allow unsigned uploads, then rebuild and redeploy the frontend.',
-        'destructive'
-      );
+    if (file.size > 7 * 1024 * 1024) {
+      showAlert('File Too Large', 'Challenge attachments must be smaller than 7 MB.', 'destructive');
+      input.value = '';
       return;
     }
 
     setUploading(true);
-    const uploadData = new FormData();
-    uploadData.append('file', file);
-    uploadData.append('upload_preset', uploadPreset);
-    
     try {
-      const res = await axios.post(
-        `https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/upload`,
-        uploadData
-      );
-      
+      const fileData = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('The selected file could not be read.'));
+        reader.readAsDataURL(file);
+      });
+      const res = await adminApi.uploadChallengeAttachment({
+        fileData,
+        fileName: file.name,
+        contentType: file.type || 'application/octet-stream'
+      });
+
       setFormData(prev => ({
         ...prev,
-        attachments: [...prev.attachments, { type: 'file', name: file.name, url: res.data.secure_url }]
+        attachments: [...prev.attachments, { type: 'file', name: file.name, url: res.data.secureUrl }]
       }));
     } catch (error) {
-      const providerMessage = error.response?.data?.error?.message || error.message;
-      const isCredentialError = /invalid api key|invalid signature|upload preset/i.test(providerMessage);
-      showAlert(
-        'Upload Failed',
-        isCredentialError
-          ? `${providerMessage}. Check the Cloudinary cloud name and unsigned upload preset in the frontend deployment settings, then rebuild and redeploy the frontend.`
-          : providerMessage,
-        'destructive'
-      );
+      showAlert('Upload Failed', error.response?.data?.message || error.message || 'Unable to upload attachment.', 'destructive');
     } finally {
       setUploading(false);
+      input.value = '';
     }
   };
 

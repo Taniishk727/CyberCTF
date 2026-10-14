@@ -119,6 +119,8 @@ CLOUDINARY_API_SECRET=<your-cloudinary-api-secret>
 CORS_ORIGIN=http://localhost:5173
 ```
 
+Challenge attachments are uploaded through the authenticated backend. Set the three Cloudinary variables on the backend deployment; do not expose the API secret through frontend `VITE_` variables.
+
 ### Frontend (`frontend/.env`)
 
 ```env
