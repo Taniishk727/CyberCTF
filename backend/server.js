@@ -45,6 +45,7 @@ const rawOrigins = [
   process.env.CORS_ORIGIN,
   'https://cyber-ctf-seven.vercel.app',
   'https://cyber-ctf-beta.vercel.app',
+  'https://flaghunters-two.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000',
   'http://localhost:4173'
