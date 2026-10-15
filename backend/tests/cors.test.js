@@ -6,7 +6,9 @@ import mongoose from 'mongoose';
 // Set environment variables before loading app
 process.env.VERCEL = '1'; // Prevents server auto-listening in server.js
 process.env.NODE_ENV = 'production';
+// Stale frontend settings must not silently re-enable the retired CORS origin.
 process.env.FRONTEND_URL = 'https://cyber-ctf-seven.vercel.app';
+process.env.CORS_ORIGIN = 'https://cyber-ctf-seven.vercel.app';
 process.env.JWT_SECRET = 'test-secret-key-12345678901234567890';
 
 // Mock mongoose connection so tests can exercise routes without an external MongoDB server
@@ -47,33 +49,35 @@ describe('CORS and Preflight Suite', () => {
     await new Promise((resolve) => server.close(resolve));
   });
 
-  test('1. OPTIONS preflight from production Vercel origin returns 204 and CORS headers', async () => {
-    const res = await fetch(`${baseUrl}/api/auth/admin/login`, {
+  test('1. OPTIONS preflight reaches a protected admin route before auth and returns CORS headers', async () => {
+    const res = await fetch(`${baseUrl}/api/admin/users`, {
       method: 'OPTIONS',
       headers: {
-        'Origin': 'https://cyber-ctf-seven.vercel.app',
-        'Access-Control-Request-Method': 'POST',
+        'Origin': 'https://flaghunters-two.vercel.app',
+        'Access-Control-Request-Method': 'GET',
         'Access-Control-Request-Headers': 'Content-Type,Authorization'
       }
     });
 
     assert.ok(res.status === 200 || res.status === 204, `Expected 200/204, got ${res.status}`);
-    assert.strictEqual(res.headers.get('access-control-allow-origin'), 'https://cyber-ctf-seven.vercel.app');
+    assert.strictEqual(res.headers.get('access-control-allow-origin'), 'https://flaghunters-two.vercel.app');
     assert.strictEqual(res.headers.get('access-control-allow-credentials'), 'true');
     
     const allowMethods = res.headers.get('access-control-allow-methods') || '';
+    assert.ok(allowMethods.includes('GET'), 'GET should be permitted');
     assert.ok(allowMethods.includes('POST'), 'POST should be permitted');
     assert.ok(allowMethods.includes('OPTIONS'), 'OPTIONS should be permitted');
 
     const allowHeaders = (res.headers.get('access-control-allow-headers') || '').toLowerCase();
     assert.ok(allowHeaders.includes('content-type'), 'content-type should be in allowed headers');
+    assert.ok(allowHeaders.includes('authorization'), 'authorization should be in allowed headers');
   });
 
   test('2. OPTIONS preflight with trailing slash in origin header is handled cleanly', async () => {
     const res = await fetch(`${baseUrl}/api/auth/admin/login`, {
       method: 'OPTIONS',
       headers: {
-        'Origin': 'https://cyber-ctf-seven.vercel.app/',
+        'Origin': 'https://flaghunters-two.vercel.app/',
         'Access-Control-Request-Method': 'POST',
         'Access-Control-Request-Headers': 'Content-Type'
       }
@@ -81,27 +85,27 @@ describe('CORS and Preflight Suite', () => {
 
     assert.ok(res.status === 200 || res.status === 204, `Expected 200/204, got ${res.status}`);
     assert.ok(
-      res.headers.get('access-control-allow-origin') === 'https://cyber-ctf-seven.vercel.app' ||
-      res.headers.get('access-control-allow-origin') === 'https://cyber-ctf-seven.vercel.app/'
+      res.headers.get('access-control-allow-origin') === 'https://flaghunters-two.vercel.app' ||
+      res.headers.get('access-control-allow-origin') === 'https://flaghunters-two.vercel.app/'
     );
   });
 
-  test('3. OPTIONS preflight from Vercel preview deployment is permitted', async () => {
+  test('3. Retired production origin is rejected even when legacy env values still contain it', async () => {
     const res = await fetch(`${baseUrl}/api/auth/admin/login`, {
       method: 'OPTIONS',
       headers: {
-        'Origin': 'https://cyber-ctf-preview-branch.vercel.app',
+        'Origin': 'https://cyber-ctf-seven.vercel.app',
         'Access-Control-Request-Method': 'POST',
         'Access-Control-Request-Headers': 'Content-Type'
       }
     });
 
-    assert.ok(res.status === 200 || res.status === 204, `Expected 200/204, got ${res.status}`);
-    assert.strictEqual(res.headers.get('access-control-allow-origin'), 'https://cyber-ctf-preview-branch.vercel.app');
+    assert.strictEqual(res.status, 403);
+    assert.strictEqual(res.headers.get('access-control-allow-origin'), null);
   });
 
   test('4. Local development origins remain supported', async () => {
-    for (const origin of ['http://localhost:5173', 'http://localhost:3000']) {
+    for (const origin of ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:4173']) {
       const res = await fetch(`${baseUrl}/api/auth/admin/login`, {
         method: 'OPTIONS',
         headers: {
@@ -135,13 +139,13 @@ describe('CORS and Preflight Suite', () => {
     const res = await fetch(`${baseUrl}/api/auth/admin/login`, {
       method: 'POST',
       headers: {
-        'Origin': 'https://cyber-ctf-seven.vercel.app',
+        'Origin': 'https://flaghunters-two.vercel.app',
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ username: '', password: '' })
     });
 
-    assert.strictEqual(res.headers.get('access-control-allow-origin'), 'https://cyber-ctf-seven.vercel.app');
+    assert.strictEqual(res.headers.get('access-control-allow-origin'), 'https://flaghunters-two.vercel.app');
     assert.strictEqual(res.status, 400); // Fails username/password required validation
     const data = await res.json();
     assert.strictEqual(data.message, 'Username and password are required');
@@ -158,13 +162,13 @@ describe('CORS and Preflight Suite', () => {
       const res = await fetch(`${baseUrl}/api/auth/admin/login`, {
         method: 'POST',
         headers: {
-          'Origin': 'https://cyber-ctf-seven.vercel.app',
+          'Origin': 'https://flaghunters-two.vercel.app',
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ username: 'fakeadmin', password: 'badpassword' })
       });
 
-      assert.strictEqual(res.headers.get('access-control-allow-origin'), 'https://cyber-ctf-seven.vercel.app');
+      assert.strictEqual(res.headers.get('access-control-allow-origin'), 'https://flaghunters-two.vercel.app');
       assert.strictEqual(res.status, 401);
       const data = await res.json();
       assert.strictEqual(data.message, 'Invalid credentials');
@@ -177,11 +181,11 @@ describe('CORS and Preflight Suite', () => {
     const res = await fetch(`${baseUrl}/api/admin/users`, {
       method: 'GET',
       headers: {
-        'Origin': 'https://cyber-ctf-seven.vercel.app'
+        'Origin': 'https://flaghunters-two.vercel.app'
       }
     });
 
-    assert.strictEqual(res.headers.get('access-control-allow-origin'), 'https://cyber-ctf-seven.vercel.app');
+    assert.strictEqual(res.headers.get('access-control-allow-origin'), 'https://flaghunters-two.vercel.app');
     assert.strictEqual(res.status, 401);
     const data = await res.json();
     assert.strictEqual(data.message, 'No token provided');
@@ -195,26 +199,26 @@ describe('CORS and Preflight Suite', () => {
 
     const resWithOrigin = await fetch(`${baseUrl}/api/health`, {
       headers: {
-        'Origin': 'https://cyber-ctf-seven.vercel.app'
+        'Origin': 'https://flaghunters-two.vercel.app'
       }
     });
     assert.strictEqual(resWithOrigin.status, 200);
-    assert.strictEqual(resWithOrigin.headers.get('access-control-allow-origin'), 'https://cyber-ctf-seven.vercel.app');
+    assert.strictEqual(resWithOrigin.headers.get('access-control-allow-origin'), 'https://flaghunters-two.vercel.app');
   });
 
   test('10. Player join endpoint maintains CORS and validates input payload', async () => {
     const res = await fetch(`${baseUrl}/api/auth/join`, {
       method: 'POST',
       headers: {
-        'Origin': 'https://cyber-ctf-seven.vercel.app',
+        'Origin': 'https://flaghunters-two.vercel.app',
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ username: '', gamePin: '', passcode: '' })
     });
 
-    assert.strictEqual(res.headers.get('access-control-allow-origin'), 'https://cyber-ctf-seven.vercel.app');
+    assert.strictEqual(res.headers.get('access-control-allow-origin'), 'https://flaghunters-two.vercel.app');
     assert.strictEqual(res.status, 400);
     const data = await res.json();
-    assert.strictEqual(data.message, 'Username and game PIN are required');
+    assert.strictEqual(data.message, 'Username and Room PIN are required');
   });
 });

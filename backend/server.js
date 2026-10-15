@@ -40,16 +40,13 @@ app.use(helmet());
 app.use(compression());
 
 // 3. CORS Configuration
+// Exact browser origins: production frontend plus the local Vite/dev servers.
 const rawOrigins = [
-  process.env.FRONTEND_URL,
-  process.env.CORS_ORIGIN,
-  'https://cyber-ctf-seven.vercel.app',
-  'https://cyber-ctf-beta.vercel.app',
   'https://flaghunters-two.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000',
   'http://localhost:4173'
-].filter(Boolean);
+];
 
 // Normalize allowed origins by trimming whitespace and removing trailing slashes
 const allowedOrigins = [...new Set(rawOrigins.map(o => o.trim().replace(/\/+$/, '')))];
@@ -61,18 +58,8 @@ const corsOptions = {
 
     const normalizedOrigin = origin.trim().replace(/\/+$/, '');
 
-    // Allow explicitly configured origins
+    // Allow only origins listed above; CORS is separate from route authentication.
     if (allowedOrigins.includes(normalizedOrigin)) {
-      return callback(null, true);
-    }
-
-    // Allow official Vercel preview deployments for this project (e.g. https://cyber-ctf-*-yourteam.vercel.app)
-    if (/^https:\/\/cyber-ctf(-[a-z0-9_-]+)?\.vercel\.app$/.test(normalizedOrigin)) {
-      return callback(null, true);
-    }
-
-    // Allow any origin in non-production environments (e.g. testing)
-    if (process.env.NODE_ENV !== 'production') {
       return callback(null, true);
     }
 
@@ -83,8 +70,8 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization']
 };
 
+// cors() handles OPTIONS preflight here before the database and API auth middleware.
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
 
 // 4. Body parsing
 app.use(express.json({ limit: '10mb' }));
