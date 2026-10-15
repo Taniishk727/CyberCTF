@@ -107,7 +107,7 @@ router.post('/uploads', async (req, res, next) => {
 router.get('/dashboard', async (req, res, next) => {
   try {
     const [events, playerCounts, challengeCounts, submissionCounts] = await Promise.all([
-      Event.find().sort({ createdAt: -1 }).select('_id name gamePin isActive startDate endDate').lean(),
+      Event.find().sort({ createdAt: -1 }).select('_id name gamePin isActive startDate endDate questionsVisible').lean(),
       User.aggregate([
         { $match: { role: 'player' } },
         { $group: { _id: '$eventId', playerCount: { $sum: 1 } } }
@@ -131,6 +131,7 @@ router.get('/dashboard', async (req, res, next) => {
         name: event.name,
         gamePin: event.gamePin,
         isActive: event.isActive,
+        questionsVisible: event.questionsVisible === true,
         startDate: event.startDate,
         endDate: event.endDate
       },
@@ -180,6 +181,7 @@ router.post('/events', async (req, res, next) => {
       startDate: startDate || new Date(),
       endDate,
       isActive: true,
+      questionsVisible: false,
       createdBy: req.user._id
     });
 
@@ -196,6 +198,7 @@ router.post('/events', async (req, res, next) => {
         startDate: event.startDate,
         endDate: event.endDate,
         isActive: event.isActive,
+        questionsVisible: event.questionsVisible,
         createdAt: event.createdAt
       }
     });
@@ -207,13 +210,19 @@ router.post('/events', async (req, res, next) => {
 // PUT /api/admin/events/:id - Update event
 router.put('/events/:id', async (req, res, next) => {
   try {
-    const { name, description, startDate, endDate, isActive } = req.body;
+    const fields = ['name', 'description', 'startDate', 'endDate', 'isActive', 'questionsVisible'];
+    const updates = Object.fromEntries(fields
+      .filter((field) => Object.hasOwn(req.body, field))
+      .map((field) => [field, req.body[field]]));
 
-    const event = await Event.findByIdAndUpdate(
-      req.params.id,
-      { name, description, startDate, endDate, isActive },
-      { new: true, runValidators: true }
-    );
+    if (Object.hasOwn(updates, 'questionsVisible') && typeof updates.questionsVisible !== 'boolean') {
+      return res.status(400).json({ message: 'questionsVisible must be a boolean' });
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: 'At least one event field must be provided' });
+    }
+
+    const event = await Event.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
 
     if (!event) {
       return res.status(404).json({ message: 'Event not found' });

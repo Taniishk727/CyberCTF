@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { categoriesApi, challengesApi } from '../../lib/api';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, CategoryBadge, DifficultyBadge } from '../../components/ui';
-import { Search, Filter, CheckCircle, Users } from 'lucide-react';
+import { Search, Filter, CheckCircle, Users, Lock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 const difficulties = ['All', 'Easy', 'Medium', 'Hard'];
@@ -11,6 +11,7 @@ export default function ChallengesPage() {
   const [challenges, setChallenges] = useState([]);
   const [categories, setCategories] = useState(['All']);
   const [loading, setLoading] = useState(true);
+  const [lockedMessage, setLockedMessage] = useState('');
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedDifficulty, setSelectedDifficulty] = useState('All');
@@ -19,11 +20,15 @@ export default function ChallengesPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [challengesRes, categoriesRes] = await Promise.all([
-          challengesApi.getAll(),
-          categoriesApi.get()
-        ]);
-        setChallenges(challengesRes.data.challenges);
+        const challengesRes = await challengesApi.getAll();
+        if (challengesRes.data.locked) {
+          setChallenges([]);
+          setLockedMessage(challengesRes.data.message || 'Questions are locked by the event organizer.');
+          return;
+        }
+        setChallenges(challengesRes.data.challenges || []);
+
+        const categoriesRes = await categoriesApi.get();
         
         if (categoriesRes.data.categories) {
           const dynamicCategories = categoriesRes.data.categories.map(c => c.name);
@@ -71,10 +76,21 @@ export default function ChallengesPage() {
       {/* Header */}
       <div className="flex flex-col gap-2">
         <h1 className="font-mono text-3xl font-bold text-foreground">Challenges</h1>
-        <p className="text-muted-foreground">
+        {!lockedMessage && <p className="text-muted-foreground">
           {challenges.filter(c => c.solved).length} / {challenges.length} solved
-        </p>
+        </p>}
       </div>
+
+      {lockedMessage ? (
+        <Card className="bg-card/50 border-primary/30">
+          <CardContent className="p-10 text-center flex flex-col items-center gap-3">
+            <Lock className="w-10 h-10 text-primary" />
+            <h2 className="font-mono text-xl font-semibold">Questions Locked</h2>
+            <p className="text-muted-foreground">{lockedMessage}</p>
+            <p className="text-sm text-muted-foreground">The event organizer will make the challenges visible when the room is ready.</p>
+          </CardContent>
+        </Card>
+      ) : <>
 
       {/* Filters */}
       <Card className="bg-card/50">
@@ -203,6 +219,7 @@ export default function ChallengesPage() {
           </div>
         ))
       )}
+      </>}
     </div>
   );
 }

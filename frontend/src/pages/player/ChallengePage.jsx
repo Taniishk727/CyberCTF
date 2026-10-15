@@ -14,6 +14,7 @@ export default function ChallengePage() {
   const { refreshLeaderboard } = useLeaderboard();
   
   const [challenge, setChallenge] = useState(null);
+  const [lockedMessage, setLockedMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [flag, setFlag] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -29,6 +30,9 @@ export default function ChallengePage() {
         const response = await challengesApi.getOne(id);
         setChallenge(response.data.challenge);
       } catch (error) {
+        if (error.response?.data?.locked) {
+          setLockedMessage(error.response.data.message || 'Questions are locked by the event organizer.');
+        }
         console.error('Error fetching challenge:', error);
       } finally {
         setLoading(false);
@@ -114,8 +118,8 @@ export default function ChallengePage() {
   if (!challenge) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <AlertCircle className="w-12 h-12 text-destructive" />
-        <p className="text-muted-foreground">Challenge not found</p>
+        {lockedMessage ? <Lock className="w-12 h-12 text-primary" /> : <AlertCircle className="w-12 h-12 text-destructive" />}
+        <p className="text-muted-foreground">{lockedMessage || 'Challenge not found'}</p>
         <Link to="/challenges">
           <Button variant="outline">
             <ArrowLeft className="w-4 h-4" />

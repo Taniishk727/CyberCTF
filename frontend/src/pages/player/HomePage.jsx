@@ -5,7 +5,7 @@ import { challengesApi } from '../../lib/api';
 import { useLeaderboard } from '../../context/LeaderboardContext';
 import TeamCarousel from '../../components/info/TeamCarousel';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui';
-import { Flag, Trophy, Target, Zap, ArrowRight, CheckCircle, Terminal, Users } from 'lucide-react';
+import { Flag, Trophy, Target, Zap, ArrowRight, CheckCircle, Terminal, Users, Lock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { teamMembers } from '../../data/teamMembers';
 
@@ -14,6 +14,7 @@ export default function HomePage() {
   const { currentUser, totalPlayers, loading: leaderboardLoading } = useLeaderboard();
   const [stats, setStats] = useState({ solved: 0, total: 0 });
   const [recentChallenges, setRecentChallenges] = useState([]);
+  const [questionsLocked, setQuestionsLocked] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -21,7 +22,13 @@ export default function HomePage() {
       try {
         const challengesRes = await challengesApi.getAll();
 
-        const challenges = challengesRes.data.challenges;
+        if (challengesRes.data.locked) {
+          setQuestionsLocked(true);
+          setStats({ solved: 0, total: 0 });
+          setRecentChallenges([]);
+          return;
+        }
+        const challenges = challengesRes.data.challenges || [];
         const solvedCount = challenges.filter(c => c.solved).length;
         
         setStats({
@@ -69,8 +76,8 @@ export default function HomePage() {
         
         <div className="flex items-center gap-4 relative z-10">
           <Link to="/challenges" className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-background px-6 py-3 rounded-lg font-medium transition-colors shadow-glow-sm">
-            <Flag className="w-5 h-5" />
-            Open Challenges
+            {questionsLocked ? <Lock className="w-5 h-5" /> : <Flag className="w-5 h-5" />}
+            {questionsLocked ? 'Questions Locked' : 'Open Challenges'}
           </Link>
           <Link to="/leaderboard" className="inline-flex items-center gap-2 border border-border/50 hover:bg-muted/30 text-foreground px-6 py-3 rounded-lg font-medium transition-colors">
             <Trophy className="w-5 h-5" />
@@ -142,7 +149,7 @@ export default function HomePage() {
                <Flag className="w-5 h-5 text-primary" />
                <CardTitle className="text-lg">Event Challenges</CardTitle>
             </div>
-            <p className="text-sm text-muted-foreground">Latest challenges available in your current session</p>
+              <p className="text-sm text-muted-foreground">{questionsLocked ? 'The event organizer has not made the questions visible yet.' : 'Latest challenges available in your current session'}</p>
           </CardHeader>
           <CardContent className="flex-1 flex flex-col items-center justify-center min-h-[150px]">
             <Link to="/challenges" className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors mt-auto mb-4">

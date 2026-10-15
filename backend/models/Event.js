@@ -36,6 +36,11 @@ const eventSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  // Events remain hidden from players until an administrator explicitly releases questions.
+  questionsVisible: {
+    type: Boolean,
+    default: false
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'

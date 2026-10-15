@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { adminApi } from '../../lib/api';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input } from '../../components/ui';
-import { Calendar, Users, Flag, Trophy, Plus, Copy, CheckCircle, Trash2, X, Download, MonitorPlay, Mail, AlertTriangle } from 'lucide-react';
+import { Calendar, Users, Flag, Trophy, Plus, Copy, CheckCircle, Trash2, X, Download, MonitorPlay, Mail, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { formatDate, cn } from '../../lib/utils';
 import { useDialog } from '../../context/DialogContext';
 import CategoryDistributionChart from '../../components/charts/CategoryDistributionChart';
@@ -131,6 +131,26 @@ export default function DashboardPage() {
     } catch (error) {
       showAlert('Error', error.response?.data?.message || 'Error updating event', 'destructive');
     }
+  };
+
+  const handleToggleQuestions = (event) => {
+    const willBeVisible = event.questionsVisible !== true;
+    showConfirm({
+      title: willBeVisible ? 'Make Questions Visible' : 'Lock Questions',
+      message: willBeVisible
+        ? `Players in ${event.name} will be able to see all active questions${event.startDate && new Date(event.startDate) > new Date() ? ' when the room start time is reached' : ' immediately'}. Continue?`
+        : `Players in ${event.name} will no longer be able to view questions or submit answers. Continue?`,
+      confirmText: willBeVisible ? 'Make Visible' : 'Lock Questions',
+      variant: willBeVisible ? 'success' : 'warning',
+      onConfirm: async () => {
+        try {
+          await adminApi.updateEvent(event.id, { questionsVisible: willBeVisible });
+          await fetchDashboard();
+        } catch (error) {
+          showAlert('Error', error.response?.data?.message || 'Error updating question visibility', 'destructive');
+        }
+      }
+    });
   };
 
   const copyPin = (pin) => {
@@ -339,6 +359,17 @@ export default function DashboardPage() {
                           <span className="px-2 py-0.5 rounded text-xs bg-muted/50 text-muted-foreground border border-border/50 font-medium tracking-wider uppercase">Inactive</span>
                         )}
                       </div>
+                      <div className="mt-2">
+                        <span className={cn(
+                          'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border font-medium tracking-wide',
+                          event.questionsVisible
+                            ? 'bg-success/10 text-success border-success/30'
+                            : 'bg-warning/10 text-warning border-warning/30'
+                        )}>
+                          {event.questionsVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                          {event.questionsVisible ? 'Questions Visible' : 'Questions Locked'}
+                        </span>
+                      </div>
                     </div>
                     {/* Delete Toggle */}
                     <Button
@@ -407,6 +438,18 @@ export default function DashboardPage() {
                     >
                       <MonitorPlay className="w-4 h-4 mr-1" />
                       Stream View
+                    </Button>
+                    <Button
+                      variant={event.questionsVisible ? 'outline' : 'primary'}
+                      size="sm"
+                      className={cn(
+                        'col-span-2 w-full min-w-0 justify-center px-2',
+                        event.questionsVisible && 'border-warning/40 text-warning hover:bg-warning/10'
+                      )}
+                      onClick={() => handleToggleQuestions(event)}
+                    >
+                      {event.questionsVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {event.questionsVisible ? 'Lock Questions' : 'Make Questions Visible'}
                     </Button>
                     <Button
                       variant={event.isActive ? "outline" : "default"}

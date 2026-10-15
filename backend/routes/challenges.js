@@ -2,7 +2,7 @@ import express from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { Challenge, Submission, UnlockedHint, User } from '../models/index.js';
 import { authMiddleware, requirePlayer } from '../middleware/auth.js';
-import { requireEventActive, requireEventOpen } from '../middleware/eventStatus.js';
+import { getQuestionVisibility, requireEventActive, requireEventOpen, requireQuestionsVisible } from '../middleware/eventStatus.js';
 import { invalidateLeaderboardCache } from '../utils/leaderboardCache.js';
 
 const router = express.Router();
@@ -32,6 +32,15 @@ const hintUnlockLimiter = rateLimit({
 router.get('/', authMiddleware, requirePlayer, requireEventActive, async (req, res, next) => {
   try {
     const { eventId } = req.user;
+    const visibility = getQuestionVisibility(req.event);
+    if (!visibility.visible) {
+      return res.json({
+        challenges: [],
+        locked: true,
+        message: visibility.message,
+        startDate: visibility.startDate || null
+      });
+    }
 
     const [challenges, solvedSubmissions, unlockedHints] = await Promise.all([
       Challenge.find({ eventId, isActive: true })
@@ -82,7 +91,7 @@ router.get('/', authMiddleware, requirePlayer, requireEventActive, async (req, r
 });
 
 // GET /api/challenges/:id - Get single challenge
-router.get('/:id', authMiddleware, requirePlayer, requireEventActive, async (req, res, next) => {
+router.get('/:id', authMiddleware, requirePlayer, requireEventActive, requireQuestionsVisible, async (req, res, next) => {
   try {
     const challenge = await Challenge.findOne({
       _id: req.params.id,
