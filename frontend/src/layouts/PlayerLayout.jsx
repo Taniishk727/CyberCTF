@@ -46,7 +46,7 @@ export default function PlayerLayout({ children }) {
               <Terminal className="w-5 h-5" />
             </div>
             <span className="font-mono font-bold text-xl tracking-tight text-white group-hover:text-primary transition-colors">
-              CyberCTF
+              FlagHunters
             </span>
           </Link>
         </div>

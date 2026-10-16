@@ -88,7 +88,7 @@ export default function AdminLayout({ children }) {
             </div>
             <div className="flex-1">
               <span className="font-mono font-bold text-lg tracking-tight text-white group-hover:text-primary transition-colors block">
-                CyberCTF
+                FlagHunters
               </span>
               <span className="text-xs text-muted-foreground">Admin Panel</span>
             </div>

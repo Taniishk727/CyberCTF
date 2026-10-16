@@ -27,13 +27,13 @@ export default function TeamInfoPage() {
                 <Sparkles className="h-3.5 w-3.5" />
                 Team Members
               </p>
-              <h1 className="font-mono text-3xl font-bold">Team CyberCTF</h1>
+              <h1 className="font-mono text-3xl font-bold">Team FlagHunters</h1>
               <p className="mt-2 text-sm text-muted-foreground">
                 Meet our PICT team behind development, challenge creation, testing, and design.
               </p>
             </div>
             <div className="hidden rounded-full border border-border/50 bg-background/70 px-3 py-1 text-xs text-muted-foreground md:block">
-              Made with <Heart className="mx-1 inline h-3 w-3 fill-destructive text-destructive" /> by Team CyberCTF
+              Made with <Heart className="mx-1 inline h-3 w-3 fill-destructive text-destructive" /> by Team FlagHunters
             </div>
           </div>
         </div>

@@ -183,7 +183,7 @@ export default function HomePage() {
       <Card className="bg-card/40 border-border/50 overflow-hidden">
         <CardHeader>
           <CardTitle className="text-lg">Team Spotlight</CardTitle>
-          <p className="text-sm text-muted-foreground">Meet the builders behind CyberCTF</p>
+          <p className="text-sm text-muted-foreground">Meet the builders behind FlagHunters</p>
         </CardHeader>
         <CardContent className="pt-2 pb-4">
           <TeamCarousel members={teamMembers} />
