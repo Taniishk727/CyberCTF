@@ -3,11 +3,9 @@ import { Link } from 'react-router-dom';
 import { useSession } from '../../context/SessionContext';
 import { challengesApi } from '../../lib/api';
 import { useLeaderboard } from '../../context/LeaderboardContext';
-import TeamCarousel from '../../components/info/TeamCarousel';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui';
 import { Flag, Trophy, Target, Zap, ArrowRight, CheckCircle, Terminal, Users, Lock } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { teamMembers } from '../../data/teamMembers';
 
 export default function HomePage() {
   const { user, event } = useSession();
@@ -180,15 +178,6 @@ export default function HomePage() {
 
       </div>
 
-      <Card className="bg-card/40 border-border/50 overflow-hidden">
-        <CardHeader>
-          <CardTitle className="text-lg">Team Spotlight</CardTitle>
-          <p className="text-sm text-muted-foreground">Meet the builders behind FlagHunters</p>
-        </CardHeader>
-        <CardContent className="pt-2 pb-4">
-          <TeamCarousel members={teamMembers} />
-        </CardContent>
-      </Card>
     </div>
   );
 }
