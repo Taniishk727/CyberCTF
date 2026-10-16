@@ -55,13 +55,13 @@ export default function JoinPage() {
         {/* Logo */}
         <div className="flex items-center justify-center gap-3 mb-8">
           <Terminal className="w-10 h-10 text-primary" />
-          <h1 className="font-mono font-bold text-3xl text-foreground text-glow">CTF Platform</h1>
+          <h1 className="font-mono font-bold text-3xl text-foreground text-glow">Flag Hunters</h1>
         </div>
 
         <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
           <CardHeader className="text-center">
             <CardTitle className="text-2xl">
-              Join CTF Event
+              Join Flag Hunters Event
             </CardTitle>
             <CardDescription>
               Enter Room PIN, Username, and Passcode to join or resume
