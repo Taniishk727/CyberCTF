@@ -167,6 +167,7 @@ export function buildCredentialEmail({ studentId, temporaryPassword, gamePin }) 
   const username = escapeHtml(studentId);
   const password = escapeHtml(temporaryPassword);
   const roomCredential = escapeHtml(gamePin);
+  const websiteUrl = 'https://flaghunters-two.vercel.app/';
 
   const html = `
 <!DOCTYPE html>
@@ -179,11 +180,12 @@ export function buildCredentialEmail({ studentId, temporaryPassword, gamePin }) 
   <p><strong>Username:</strong> <code>${username}</code></p>
   <p><strong>Password:</strong> <code>${password}</code></p>
   <p><strong>Room PIN:</strong> <code>${roomCredential}</code></p>
+  <p><strong>Website:</strong> <a href="${websiteUrl}">${websiteUrl}</a></p>
 </body>
 </html>
   `.trim();
 
-  const text = `Username: ${studentId}\nPassword: ${temporaryPassword}\nRoom PIN: ${gamePin}`;
+  const text = `Username: ${studentId}\nPassword: ${temporaryPassword}\nRoom PIN: ${gamePin}\nWebsite: ${websiteUrl}`;
   return { html, text };
 }
 
