@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useSession } from './context/SessionContext';
 import { useBan } from './context/BanContext';
+import OpeningSplash from './components/OpeningSplash';
 
 // Layouts
 import PlayerLayout from './layouts/PlayerLayout';
@@ -87,8 +88,10 @@ export default function App() {
   }
 
   return (
-    <Suspense fallback={<LoadingScreen />}>
-      <Routes>
+    <>
+      <OpeningSplash />
+      <Suspense fallback={<LoadingScreen />}>
+        <Routes>
         {/* Public routes */}
         <Route
           path="/"
@@ -233,7 +236,8 @@ export default function App() {
 
         {/* Catch all */}
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Suspense>
+        </Routes>
+      </Suspense>
+    </>
   );
 }
