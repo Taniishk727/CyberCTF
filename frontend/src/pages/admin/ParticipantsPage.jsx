@@ -431,11 +431,11 @@ export default function ParticipantsPage() {
           </Button>
         </div>
       ) : (
-        <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="p-4 rounded-xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
-            <CheckCircle className="w-5 h-5 mt-0.5 text-emerald-400 shrink-0" />
+            <CheckCircle className="w-5 h-5 mt-0.5 text-cyan-400 shrink-0" />
             <div className="text-sm">
-              <strong className="text-emerald-300 font-semibold">Gmail Connected:</strong> New participants will receive credential emails immediately from <code className="bg-emerald-950/60 px-1.5 py-0.5 rounded text-emerald-300 font-mono text-xs">{emailConfig.fromEmail}</code> via the official Gmail API.
+              <strong className="text-cyan-300 font-semibold">Gmail Connected:</strong> New participants will receive credential emails immediately from <code className="bg-cyan-950/60 px-1.5 py-0.5 rounded text-cyan-300 font-mono text-xs">{emailConfig.fromEmail}</code> via the official Gmail API.
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -444,7 +444,7 @@ export default function ParticipantsPage() {
               size="sm"
               onClick={handleSendTestEmail}
               loading={sendingTest}
-              className="border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/20"
+              className="border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/20"
             >
               <Send className="w-3.5 h-3.5 mr-1.5" />
               Test Email
@@ -454,7 +454,7 @@ export default function ParticipantsPage() {
               size="sm"
               onClick={handleConnectGmail}
               loading={connectingGmail}
-              className="border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/20 text-xs"
+              className="border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/20 text-xs"
               title="Switch or reconnect Gmail account"
             >
               Reconnect
@@ -569,9 +569,9 @@ export default function ParticipantsPage() {
                     {previewData.summary.totalRows}
                   </div>
                 </div>
-                <div className="p-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10">
-                  <div className="text-xs text-emerald-400">Valid New Accounts</div>
-                  <div className="text-2xl font-mono font-bold text-emerald-400">
+                <div className="p-3 rounded-lg border border-cyan-500/20 bg-cyan-500/10">
+                  <div className="text-xs text-cyan-400">Valid New Accounts</div>
+                  <div className="text-2xl font-mono font-bold text-cyan-400">
                     {previewData.summary.validCount}
                   </div>
                 </div>
@@ -610,7 +610,7 @@ export default function ParticipantsPage() {
                         <td className="p-3 font-mono text-xs text-muted-foreground">{r.email || '—'}</td>
                         <td className="p-3">
                           {r.isValid ? (
-                            <span className="inline-flex items-center text-xs text-emerald-400 font-medium">
+                            <span className="inline-flex items-center text-xs text-cyan-400 font-medium">
                               <CheckCircle className="w-3.5 h-3.5 mr-1" /> Valid
                             </span>
                           ) : (
@@ -711,7 +711,7 @@ export default function ParticipantsPage() {
             </button>
             <button
               onClick={() => setDeliveryFilter('sent')}
-              className={`px-3 py-1.5 rounded-lg border transition-colors ${deliveryFilter === 'sent' ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400' : 'border-border/60 bg-muted/30 text-muted-foreground'}`}
+              className={`px-3 py-1.5 rounded-lg border transition-colors ${deliveryFilter === 'sent' ? 'border-cyan-500 bg-cyan-500/20 text-cyan-400' : 'border-border/60 bg-muted/30 text-muted-foreground'}`}
             >
               Sent ({deliveryBreakdown.sent})
             </button>
@@ -779,13 +779,13 @@ export default function ParticipantsPage() {
                       <td className="p-3 font-mono text-xs text-muted-foreground">{p.email || '—'}</td>
                       <td className="p-3 text-xs text-muted-foreground">{p.eventId?.name || 'Unassigned'}</td>
                       <td className="p-3">
-                        <span className={`inline-flex px-2 py-0.5 rounded text-xs font-mono font-medium ${p.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                        <span className={`inline-flex px-2 py-0.5 rounded text-xs font-mono font-medium ${p.status === 'active' ? 'bg-cyan-500/10 text-cyan-400' : 'bg-rose-500/10 text-rose-400'}`}>
                           {p.status}
                         </span>
                       </td>
                       <td className="p-3">
                         {p.emailDelivery?.status === 'sent' && (
-                          <span className="inline-flex items-center text-xs text-emerald-400 font-mono">
+                          <span className="inline-flex items-center text-xs text-cyan-400 font-mono">
                             <CheckCircle className="w-3.5 h-3.5 mr-1" /> Sent
                           </span>
                         )}

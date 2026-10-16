@@ -74,34 +74,34 @@ export default function SolveRatesChart({ eventId, data: providedData, loading: 
             data={sortedData}
             margin={{ top: 20, right: 30, left: 0, bottom: 80 }}
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0, 255, 136, 0.1)" />
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(34, 211, 238, 0.12)" />
             <XAxis
               dataKey="challenge"
-              stroke="#666"
+              stroke="#8da6c4"
               tick={{ fontSize: 12 }}
               angle={-45}
               textAnchor="end"
               height={100}
             />
             <YAxis
-              stroke="#666"
+              stroke="#8da6c4"
               tick={{ fontSize: 12 }}
               label={{ value: '% Solved', angle: -90, position: 'insideLeft' }}
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: 'rgba(20, 20, 25, 0.95)',
-                border: '1px solid rgba(0, 255, 136, 0.3)',
+                backgroundColor: 'rgba(3, 8, 15, 0.96)',
+                border: '1px solid rgba(34, 211, 238, 0.35)',
                 borderRadius: '8px',
-                boxShadow: '0 0 20px rgba(0, 255, 136, 0.2)'
+                boxShadow: '0 0 16px rgba(34, 211, 238, 0.12)'
               }}
-              labelStyle={{ color: '#00ff88' }}
+              labelStyle={{ color: '#67e8f9' }}
               formatter={(value) => [`${value}%`, 'Solve Rate']}
             />
             <Legend />
             <Bar
               dataKey="percent"
-              fill="#00ff88"
+              fill="#22d3ee"
               name="Solve Rate (%)"
               radius={[8, 8, 0, 0]}
             />

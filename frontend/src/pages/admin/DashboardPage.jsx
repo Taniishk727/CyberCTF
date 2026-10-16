@@ -246,8 +246,8 @@ export default function DashboardPage() {
 
         <Card className="bg-card/50">
           <CardContent className="p-4 flex items-center gap-4">
-            <div className="p-3 rounded-lg bg-emerald-400/10">
-              <Trophy className="w-6 h-6 text-emerald-400" />
+            <div className="p-3 rounded-lg bg-cyan-400/10">
+              <Trophy className="w-6 h-6 text-cyan-400" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Total Solves</p>
@@ -289,15 +289,15 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         ) : (
-          <Card className="border-emerald-500/30 bg-emerald-500/10 backdrop-blur-sm">
+          <Card className="border-cyan-500/30 bg-cyan-500/10 backdrop-blur-sm">
             <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400">
+                <div className="p-2 rounded-lg bg-cyan-500/20 text-cyan-400">
                   <CheckCircle className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-emerald-200">
-                    Official Gmail Connected: <span className="font-mono text-emerald-300 font-bold">{gmailStatus.email}</span>
+                  <p className="text-sm font-semibold text-cyan-200">
+                    Official Gmail Connected: <span className="font-mono text-cyan-300 font-bold">{gmailStatus.email}</span>
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Ready to dispatch participant credentials via official Gmail API.
@@ -306,7 +306,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <Link to="/admin/participants">
-                  <Button variant="outline" size="sm" className="border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/20 text-xs">
+                  <Button variant="outline" size="sm" className="border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/20 text-xs">
                     Manage Credentials
                   </Button>
                 </Link>
@@ -315,7 +315,7 @@ export default function DashboardPage() {
                   size="sm"
                   onClick={handleConnectGmail}
                   loading={connectingGmail}
-                  className="border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/20 text-xs"
+                  className="border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/20 text-xs"
                   title="Switch or reconnect Gmail account"
                 >
                   Reconnect

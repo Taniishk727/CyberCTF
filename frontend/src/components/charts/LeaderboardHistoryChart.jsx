@@ -3,7 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { leaderboardApi } from '../../lib/api';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui';
 
-const NEON_COLORS = ['#00ff88', '#00ccff', '#ff00ff', '#ffff00', '#ff6600', '#00ff00', '#ff0099', '#00ffff', '#ffcc00', '#ff3366'];
+const SERIES_COLORS = ['#22d3ee', '#38bdf8', '#60a5fa', '#3b82f6', '#818cf8', '#67e8f9', '#93c5fd', '#0ea5e9', '#a5f3fc', '#2563eb'];
 
 export default function LeaderboardHistoryChart() {
   const [data, setData] = useState([]);
@@ -67,10 +67,10 @@ export default function LeaderboardHistoryChart() {
       <CardContent className="w-full">
         <ResponsiveContainer width="100%" height={400}>
           <BarChart data={data} margin={{ top: 5, right: 30, left: 0, bottom: 80 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0, 255, 136, 0.1)" />
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(34, 211, 238, 0.12)" />
             <XAxis
               dataKey="timestamp"
-              stroke="#666"
+              stroke="#8da6c4"
               tick={{ fontSize: 12 }}
               angle={-45}
               textAnchor="end"
@@ -78,17 +78,17 @@ export default function LeaderboardHistoryChart() {
               interval={Math.max(0, Math.floor(data.length / 6))}
             />
             <YAxis
-              stroke="#666"
+              stroke="#8da6c4"
               tick={{ fontSize: 12 }}
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: 'rgba(20, 20, 25, 0.95)',
-                border: '1px solid rgba(0, 255, 136, 0.3)',
+                backgroundColor: 'rgba(3, 8, 15, 0.96)',
+                border: '1px solid rgba(34, 211, 238, 0.35)',
                 borderRadius: '8px',
-                boxShadow: '0 0 20px rgba(0, 255, 136, 0.2)'
+                boxShadow: '0 0 16px rgba(34, 211, 238, 0.12)'
               }}
-              labelStyle={{ color: '#00ff88' }}
+              labelStyle={{ color: '#67e8f9' }}
               formatter={(value) => value?.toFixed(0) || 0}
             />
             <Legend
@@ -98,7 +98,7 @@ export default function LeaderboardHistoryChart() {
               <Bar
                 key={userName}
                 dataKey={userName}
-                fill={NEON_COLORS[index % NEON_COLORS.length]}
+                fill={SERIES_COLORS[index % SERIES_COLORS.length]}
                 isAnimationActive={true}
                 animationDuration={800}
               />

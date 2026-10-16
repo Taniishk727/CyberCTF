@@ -2,18 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { adminApi } from '../../lib/api';
 
-// Professional color palette for top 10 players (subtle, no neon)
+// Cyan and blue shades distinguish players while matching the site theme.
 const PLAYER_COLORS = [
-  '#3b82f6', // Blue - Rank 1
-  '#8b5cf6', // Purple - Rank 2
-  '#ec4899', // Pink - Rank 3
-  '#06b6d4', // Cyan - Rank 4
-  '#10b981', // Emerald - Rank 5
-  '#f59e0b', // Amber - Rank 6
-  '#6366f1', // Indigo - Rank 7
-  '#f97316', // Orange - Rank 8
-  '#14b8a6', // Teal - Rank 9
-  '#a78bfa'  // Violet - Rank 10
+  '#22d3ee', '#38bdf8', '#60a5fa', '#3b82f6', '#818cf8',
+  '#67e8f9', '#93c5fd', '#0ea5e9', '#a5f3fc', '#2563eb'
 ];
 
 export default function LeaderboardProgressionChart({ eventId }) {

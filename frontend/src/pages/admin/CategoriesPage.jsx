@@ -5,20 +5,14 @@ import { Plus, Edit, Trash2, X } from 'lucide-react';
 import { useDialog } from '../../context/DialogContext';
 
 const COLOR_PRESETS = [
-  '#3b82f6', // Blue
-  '#ef4444', // Red
-  '#10b981', // Green
-  '#f59e0b', // Amber
-  '#8b5cf6', // Purple
-  '#ec4899', // Pink
-  '#06b6d4', // Cyan
-  '#f97316'  // Orange
+  '#22d3ee', '#38bdf8', '#60a5fa', '#3b82f6',
+  '#818cf8', '#67e8f9', '#93c5fd', '#0ea5e9'
 ];
 
 const defaultCategory = {
   name: '',
   description: '',
-  color: '#3b82f6',
+  color: '#22d3ee',
   eventId: ''
 };
 

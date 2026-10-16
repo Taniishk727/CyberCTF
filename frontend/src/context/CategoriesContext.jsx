@@ -19,16 +19,8 @@ function generateColorFromName(name) {
 
 // Predefined color palette for better visual consistency
 const COLOR_PALETTE = [
-  '#3b82f6', // Blue
-  '#10b981', // Green
-  '#a855f7', // Purple
-  '#f59e0b', // Amber
-  '#ef4444', // Red
-  '#06b6d4', // Cyan
-  '#ec4899', // Pink
-  '#8b5cf6', // Violet
-  '#f97316', // Orange
-  '#06b6d4', // Teal
+  '#22d3ee', '#38bdf8', '#60a5fa', '#3b82f6', '#818cf8',
+  '#67e8f9', '#93c5fd', '#0ea5e9', '#a5f3fc', '#2563eb'
 ];
 
 function getCategoryColor(categoryName, categoryObject) {

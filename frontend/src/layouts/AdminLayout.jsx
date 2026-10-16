@@ -144,10 +144,10 @@ export default function AdminLayout({ children }) {
               ) : (
                 <Link
                   to="/admin/participants"
-                  className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                  className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
                   title={`Gmail Authorized: ${gmailStatus.email}`}
                 >
-                  <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <CheckCircle className="w-4 h-4 text-cyan-400 shrink-0" />
                   <span className="truncate text-xs">Gmail Connected</span>
                 </Link>
               )}
@@ -212,10 +212,10 @@ export default function AdminLayout({ children }) {
               ) : (
                 <Link
                   to="/admin/participants"
-                  className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-mono hover:bg-emerald-500/20 transition-colors"
+                  className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-mono hover:bg-cyan-500/20 transition-colors"
                   title={`Authorized sender: ${gmailStatus.email} (Click to manage)`}
                 >
-                  <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                  <CheckCircle className="w-3.5 h-3.5 text-cyan-400" />
                   <span className="truncate max-w-[180px]">{gmailStatus.email}</span>
                 </Link>
               )

@@ -6,16 +6,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '../ui';
 
 // Fallback color palette if category doesn't have a stored color
 const FALLBACK_COLORS = [
-  '#3b82f6', // Blue
-  '#10b981', // Green
-  '#a855f7', // Purple
-  '#f59e0b', // Amber
-  '#ef4444', // Red
-  '#06b6d4', // Cyan
-  '#ec4899', // Pink
-  '#8b5cf6', // Violet
-  '#f97316', // Orange
-  '#06b6d4', // Teal
+  '#22d3ee', '#38bdf8', '#60a5fa', '#3b82f6', '#818cf8',
+  '#67e8f9', '#93c5fd', '#0ea5e9', '#a5f3fc', '#2563eb'
 ];
 
 export default function CategoryDistributionChart({ eventId, data: providedData, loading: providedLoading = false }) {
@@ -115,12 +107,12 @@ export default function CategoryDistributionChart({ eventId, data: providedData,
             </Pie>
             <Tooltip
               contentStyle={{
-                backgroundColor: 'rgba(20, 20, 25, 0.95)',
-                border: '1px solid rgba(0, 255, 136, 0.3)',
+                backgroundColor: 'rgba(3, 8, 15, 0.96)',
+                border: '1px solid rgba(34, 211, 238, 0.35)',
                 borderRadius: '8px',
-                boxShadow: '0 0 20px rgba(0, 255, 136, 0.2)'
+                boxShadow: '0 0 16px rgba(34, 211, 238, 0.12)'
               }}
-              labelStyle={{ color: '#00ff88' }}
+              labelStyle={{ color: '#67e8f9' }}
             />
             <Legend />
           </PieChart>

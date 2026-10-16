@@ -69,10 +69,10 @@ export default function ActivityChart({ eventId, data: providedData, loading: pr
       <CardContent className="w-full">
         <ResponsiveContainer width="100%" height={350}>
           <LineChart data={displayData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0, 255, 136, 0.1)" />
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(34, 211, 238, 0.12)" />
             <XAxis
               dataKey="time"
-              stroke="#666"
+              stroke="#8da6c4"
               tick={{ fontSize: 12 }}
               angle={-45}
               textAnchor="end"
@@ -80,25 +80,25 @@ export default function ActivityChart({ eventId, data: providedData, loading: pr
               interval={Math.max(0, Math.floor(displayData.length / 6))}
             />
             <YAxis
-              stroke="#666"
+              stroke="#8da6c4"
               tick={{ fontSize: 12 }}
               label={{ value: 'Submissions', angle: -90, position: 'insideLeft' }}
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: 'rgba(20, 20, 25, 0.95)',
-                border: '1px solid rgba(0, 255, 136, 0.3)',
+                backgroundColor: 'rgba(3, 8, 15, 0.96)',
+                border: '1px solid rgba(34, 211, 238, 0.35)',
                 borderRadius: '8px',
-                boxShadow: '0 0 20px rgba(0, 255, 136, 0.2)'
+                boxShadow: '0 0 16px rgba(34, 211, 238, 0.12)'
               }}
-              labelStyle={{ color: '#00ff88' }}
+              labelStyle={{ color: '#67e8f9' }}
               formatter={(value) => [value, 'Submissions']}
             />
             <Legend />
             <Line
               type="monotone"
               dataKey="submissions"
-              stroke="#00ff88"
+              stroke="#22d3ee"
               name="Submissions"
               strokeWidth={2}
               dot={false}

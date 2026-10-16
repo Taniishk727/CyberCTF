@@ -12,10 +12,10 @@ export default function EventStatsPanel({ leaderboard = [], eventData = null }) 
       <div className="flex items-center gap-3">
         <div className={cn('p-2.5 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 flex-shrink-0', {
           'from-cyan-500/20 to-cyan-500/5': color === 'text-cyan-400',
-          'from-emerald-500/20 to-emerald-500/5': color === 'text-emerald-400',
+          'from-cyan-500/20 to-cyan-500/5': color === 'text-cyan-400',
           'from-amber-500/20 to-amber-500/5': color === 'text-amber-400',
         })}>
-          <Icon className={cn('w-5 h-5', color === 'text-cyan-400' ? 'text-cyan-400' : color === 'text-emerald-400' ? 'text-emerald-400' : color === 'text-amber-400' ? 'text-amber-400' : color)} />
+          <Icon className={cn('w-5 h-5', color === 'text-cyan-400' ? 'text-cyan-400' : color === 'text-amber-400' ? 'text-amber-400' : color)} />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-xs text-muted-foreground uppercase tracking-widest font-medium">{label}</p>
@@ -59,7 +59,7 @@ export default function EventStatsPanel({ leaderboard = [], eventData = null }) 
           icon={Trophy}
           label="Active"
           value={activePlayers}
-          color="text-emerald-400"
+          color="text-cyan-400"
         />
 
         <StatCard
